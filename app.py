@@ -195,7 +195,7 @@ COUNTRIES = [
     ("KP", "Corée du Nord", ["corée du nord", "north korea", "pyongyang", "dprk"]),
     ("CN", "Chine", ["chine", "china", "chinese", "chinois", "chinoise", "pékin", "beijing", "hong kong"]),
     ("US", "États-Unis", ["états-unis", "etats-unis", "united states", "u.s.", " us ", " usa ", "washington", "américain", "american"]),
-    ("EU", "Union européenne", [" ue ", " eu ", "union européenne", "european union", "bruxelles", "brussels", "européen", "european"]),
+    ("EU", "Union européenne", [" ue ", " eu ", "union européenne", "european union", "bruxelles", "brussels", "européen", "european", "europe", "l'europe"]),
     ("FR", "France", ["france", "français", "française", "acpr", " amf ", "tracfin", "bercy"]),
     ("GB", "Royaume-Uni", ["royaume-uni", "united kingdom", " uk ", "britain", "british", "britannique", "londres", "london", " fca ", "ofsi"]),
     ("UA", "Ukraine", ["ukraine", "ukrain"]),
@@ -258,6 +258,10 @@ présidente patron patronne chef chief ceo directeur director premier ministre m
 congrès congress sénat senate assemblée maison blanche white house élysée matignon
 selon alors face voici voilà pourquoi comment ici là
 nord sud est ouest north south east west
+must pay pays paid fined fines hits hit adopt adopts adopted impose imposes imposed nearly officially record largest
+biggest ever agrees agree settles settle faces face says hails welcomes slaps sanctioning sees amid
+foreign ministers ministres affaires étrangères diplomates diplomats leaders dirigeants
+listings listing targeting individuals entities individus entités military defense industry complex
 sanction sanctions sanctionne sanctionné sanctionnée sanctionnés sanctionnées sanctioned sanctioning
 gel avoirs embargo amende amendes liste grise noire grey gray list
 treasury trésor targets target designates designated imposes impose adds announces says said council conseil commission
@@ -343,7 +347,8 @@ def extract_entity(h):
     """Premier groupe de mots à majuscule qui n'est ni un pays, ni une autorité, ni un mot courant."""
     groups, cur = [], []
     for w in re.findall(r"[\w'’&.\-]+", h):
-        base = re.sub(r"^(?:[LlDdJj]|Qu|qu)['’]", "", w).strip(".'’-")
+        base = re.sub(r"^(?:[LlDdJj]|Qu|qu)['’]", "", w)
+        base = re.sub(r"['’]s?$", "", base).strip(".'’-")   # Russia's -> Russia
         if not base:
             continue
         if base[:1].isupper():
@@ -355,6 +360,9 @@ def extract_entity(h):
             cur = []
     if cur: groups.append(cur)
     for g in groups:
+        # on coupe le groupe au premier mot courant (ex. « Bank of America Must Pay » -> « Bank of America »)
+        cut = next((i for i, x in enumerate(g) if i > 0 and x.lower() in _STOP and x.lower() not in _CONN), None)
+        if cut: g = g[:cut]
         while g and (g[0].lower() in _STOP or g[0].lower() in _CONN): g = g[1:]
         while g and (g[-1].lower() in _STOP or g[-1].lower() in _CONN): g = g[:-1]
         if g and len(" ".join(g)) > 2:
@@ -388,28 +396,112 @@ def is_action(r):
         return False
     return any(x in t for x in _ACTION)
 
+def country_by_name(word):
+    low = (word or "").lower().strip()
+    for code, n, ps in COUNTRIES:
+        if low == n.lower() or any(low == p.strip() for p in ps):
+            return code, n
+    return None
+
+_TARGET_RE = re.compile(r"(?:against|on|targeting|contre|visant|à l'encontre d[eu]|sur)\s+(?:l[ae]\s|l['’])?([\w'’\-]+(?:\s[\w'’\-]+)?)", re.I)
+
+def target_country(h):
+    """Pays visé par la mesure (« sanctions contre la Russie », « sanctions on Russia's… »)."""
+    for m in _TARGET_RE.finditer(h):
+        for cand in (m.group(1), m.group(1).split()[0]):
+            c = country_by_name(re.sub(r"['’]s?$", "", cand))
+            if c and c[0] not in ("UA",): return c
+    return None
+
+def first_third_country(h):
+    """Premier pays du titre qui n'est ni l'émetteur habituel (UE, US, UK) ni l'Ukraine."""
+    t = _norm_text(h); best = None
+    for code, n, ps in COUNTRIES:
+        if code in ("EU", "US", "GB", "UA"): continue
+        pos = [t.find(p) for p in ps if p in t]
+        if pos and (best is None or min(pos) < best[0]): best = (min(pos), code, n)
+    return (best[1], best[2]) if best else None
+
 def detect_entity(h, country):
     ent = extract_entity(h)
     if not ent:
         return country if country != "—" else "—"
-    low = ent.lower()
-    # un nom de pays ou de ville déjà couvert par la colonne Pays ne devient pas une « entité »
-    if any(low == p.strip() or low == n.lower() for _, n, ps in COUNTRIES for p in ps):
-        return ent if country == "—" else country
+    c = country_by_name(ent)
+    if c:                       # l'entité est un pays : on l'écrit en français (Russia -> Russie)
+        return c[1]
     return ent
 
 def enrich(it):
     h = headline_of(it)
-    text = _norm_text(h + " " + it["desc"])
-    cc, country = detect_country(text)
+    desc = it["desc"]
+    if it.get("source"):
+        desc = desc.replace(it["source"], " ")      # le nom du média n'indique pas le pays de l'affaire
+    desc = desc.replace(h, " ")
+    text = _norm_text(h + " " + desc)
+    tc = target_country(h)
+    if not tc and detect_measure(text)[0] in SANCTION_KINDS:
+        tc = first_third_country(h)
+    cc, country = tc if tc else detect_country(_norm_text(h)) if detect_country(_norm_text(h))[0] else detect_country(text)
     mkey, measure = detect_measure(text)
     auth = detect_authorities(text)
     entity = detect_entity(h, country)
-    amount, amount_v = detect_amount(" " + h + " " + it["desc"] + " ")
+    if entity == "—" or (tc and entity in ("Union européenne", "États-Unis", "Royaume-Uni")):
+        entity = tc[1] if tc else entity
+    amount, amount_v = detect_amount(" " + h + " " + desc + " ")
     return {**it, "headline": h, "entity": entity, "cc": cc, "country": country,
             "mkey": mkey, "measure": measure, "auth": auth, "amount": amount, "amount_v": amount_v}
 
 FLAG_URL = "https://flagcdn.com/w40/{}.png"
+
+# Rang de crédibilité (plus petit = plus crédible). Sources officielles d'abord, puis agences et grands titres.
+SOURCE_RANK = [
+    ["ofac", "treasury", "u.s. department", "council of the eu", "conseil de l'ue", "consilium", "european commission",
+     "commission européenne", "acpr", "banque de france", "amf", "tracfin", "fca", "ofsi", "fincen", "sec.gov", "justice.gov",
+     "fatf", "gafi", "united nations", "nations unies", "eba", "esma", "ecb", "bce", "amla"],
+    ["reuters", "bloomberg", "agence france-presse", "afp", "associated press", "ap news", "financial times"],
+    ["wall street journal", "the economist", "new york times", "washington post", "les echos", "le monde",
+     "bbc", "the guardian", "politico", "cnbc", "le figaro", "franceinfo", "france 24", "l'agefi", "agefi",
+     "la tribune", "challenges", "euronews", "dw", "rfi", "nikkei", "handelsblatt", "les échos"],
+    ["al jazeera", "cnn", "abc news", "nbc news", "cbs news", "fox business", "forbes", "yahoo", "marketwatch",
+     "barron's", "the times", "the telegraph", "le parisien", "20 minutes", "ouest-france", "bfm", "lci",
+     "boursorama", "zonebourse", "investing.com", "the hill", "axios", "pbs", "npr", "time", "newsweek",
+     "anadolu", "trt", "interfax", "kyiv independent", "eubusiness"],
+]
+
+def source_rank(r):
+    s_ = (r.get("source") or "").lower()
+    for i, tier in enumerate(SOURCE_RANK):
+        if any(k in s_ for k in tier):
+            return i
+    return len(SOURCE_RANK)
+
+def _ekey(r):
+    e = re.sub(r"[^a-z0-9à-ÿ ]", "", r["entity"].lower())
+    e = re.sub(r"\b(the|le|la|les|group|groupe|sa|inc|ltd|plc|corp|corporation|co)\b", " ", e)
+    return re.sub(r"\s+", " ", e).strip()
+
+def dedupe(rows):
+    """Une seule ligne par (entité, type de mesure) : on garde le média le plus crédible,
+    et on indique combien d'autres médias ont couvert la même information."""
+    groups = {}
+    for r in rows:
+        k = (_ekey(r), r["mkey"]) if r["entity"] not in ("", "—") else ("#" + r["link"], r["mkey"])
+        groups.setdefault(k, []).append(r)
+    out = []
+    for g in groups.values():
+        best = sorted(g, key=lambda r: (source_rank(r), -r["ts"]))[0]
+        best = dict(best)
+        if not best["amount_v"]:                      # montant repris d'un autre article si celui-ci n'en a pas
+            withamt = [x for x in g if x["amount_v"]]
+            if withamt:
+                best["amount"], best["amount_v"] = withamt[0]["amount"], withamt[0]["amount_v"]
+        if best["cc"] == "" and any(x["cc"] for x in g):
+            x = Counter((x["cc"], x["country"]) for x in g if x["cc"]).most_common(1)[0][0]
+            best["cc"], best["country"] = x
+        best["n_media"] = len({x["source"] for x in g if x["source"]})
+        best["ts"] = max(x["ts"] for x in g)          # date de la couverture la plus récente
+        out.append(best)
+    return sorted(out, key=lambda r: r["ts"], reverse=True)
 
 def flag(cc):
     """Drapeau en image (affichage écran)."""
@@ -441,6 +533,8 @@ def table_html(rows):
         col = SCREEN_COLOR.get(r["mkey"], "#52708a")
         main = html.escape(r["auth"] or r["source"] or "—")
         sub = f'<br><span class="meta">{html.escape(r["source"])}</span>' if r["auth"] and r["source"] else ""
+        if r.get("n_media", 1) > 1:
+            sub += f'<br><span class="meta">+{r["n_media"] - 1} autre(s) média(s)</span>'
         pays = f'{flag(r["cc"])} {html.escape(r["country"])}' if r["cc"] else "—"
         trs.append(
             f'<tr><td class="ent">{html.escape(r["entity"])}</td>'
@@ -476,7 +570,8 @@ def _cells(r):
     return [r["entity"], r["theme"], r["headline"],
             r["country"] if r["cc"] else "—",
             r["measure"], r["amount"], fmt_date(r["ts"]),
-            " · ".join(x for x in [r["auth"], r["source"]] if x) or "—"]
+            (" · ".join(x for x in [r["auth"], r["source"]] if x) or "—")
+            + (f' (+{r["n_media"] - 1} médias)' if r.get("n_media", 1) > 1 else "")]
 
 FONT_URLS = {False: "https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans.ttf",
              True: "https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans-Bold.ttf"}
@@ -726,6 +821,7 @@ if page == "🏠 Dashboard":
     fallback = not pool
     if fallback:  # aucune mesure récente : on affiche les dernières mesures connues (plus anciennes)
         pool = [r for r in rows_all if keep(r)]
+    pool = dedupe(pool)
     rows = pool[:nmax]
 
     d1 = datetime.now()
