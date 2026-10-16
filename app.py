@@ -1,6 +1,7 @@
 import json, os, re, html, time
 from datetime import datetime
 from urllib.parse import quote_plus
+from collections import Counter
 
 import feedparser
 import streamlit as st
@@ -54,7 +55,7 @@ CALENDAR = [
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Share+Tech+Mono&display=swap');
-:root{--bg:#050b14;--card:#0a1a2a;--cy:#00d4ff;--gr:#00ff88;--pu:#a855f7;--rd:#ff4d6d}
+:root{--bg:#050b14;--card:#0a1a2a;--cy:#00d4ff;--gr:#00ff88;--pu:#a855f7;--rd:#ff4d6d;--gold:#f5c542}
 .stApp{background:var(--bg);color:#cfe3f5;font-family:'Rajdhani',sans-serif}
 [data-testid=stSidebar]{background:#060e1a;border-right:1px solid #12263a}
 h1,h2,h3{font-family:'Rajdhani';letter-spacing:.15em;text-transform:uppercase}
@@ -64,10 +65,26 @@ h2,h3{color:var(--cy)}
 .sub{font-family:'Share Tech Mono';font-size:.7rem;color:#3a5870;text-align:center;letter-spacing:.3em;margin-bottom:1rem}
 .card{background:linear-gradient(135deg,#0a1f33,#0d1530);border:1px solid #13405e;border-radius:12px;padding:14px 18px;margin-bottom:10px}
 .card a{color:var(--cy);text-decoration:none}
-.tag{font-family:'Share Tech Mono';font-size:.7rem;padding:2px 8px;border:1px solid var(--pu);color:var(--pu);border-radius:4px;margin-right:8px}
+.tag{font-family:'Share Tech Mono';font-size:.7rem;padding:2px 8px;border:1px solid var(--pu);color:var(--pu);border-radius:4px;margin-right:8px;white-space:nowrap}
 .new{border-color:var(--gr);color:var(--gr)}
 .meta{font-family:'Share Tech Mono';font-size:.72rem;color:#52708a}
 .kpi{font-family:'Share Tech Mono';font-size:2rem;color:var(--gr)}
+/* ---- Page d'accueil ---- */
+.hero{border:1px solid #f5c54255;border-radius:14px;padding:18px 24px;margin-bottom:14px;background:linear-gradient(90deg,#1a1405,#0a1a2a 65%)}
+.hero-t{font-size:2.1rem;font-weight:700;color:var(--gold);letter-spacing:.06em;text-shadow:0 0 14px #f5c54244}
+.hero-t span{color:#cfe3f5;font-weight:500;font-size:1.35rem}
+.hero-s{font-family:'Share Tech Mono';font-size:.8rem;color:#8aa4ba;letter-spacing:.08em;margin-top:4px}
+.wwrap{overflow-x:auto;border:1px solid #13405e;border-radius:12px;background:linear-gradient(135deg,#0a1f33,#0d1530);margin-bottom:8px}
+.wtable{width:100%;border-collapse:collapse;font-size:.98rem}
+.wtable th{font-family:'Share Tech Mono';font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);text-align:left;padding:11px 12px;border-bottom:1px solid #f5c54266;background:#081626;white-space:nowrap}
+.wtable td{padding:10px 12px;border-bottom:1px solid #12263a;vertical-align:top;color:#cfe3f5}
+.wtable tr:hover td{background:#0e2238}
+.wtable a{color:#e3f1fc;text-decoration:none}
+.wtable a:hover{color:var(--cy)}
+.ent{color:var(--cy);font-weight:700;min-width:140px}
+.mz{font-family:'Share Tech Mono';font-size:.7rem;padding:2px 8px;border-radius:4px;border:1px solid;white-space:nowrap}
+.chip{display:inline-block;font-family:'Share Tech Mono';font-size:.75rem;padding:4px 11px;margin:0 6px 6px 0;border:1px solid #13405e;border-radius:20px;color:#cfe3f5;background:#0a1a2a}
+.chip b{color:var(--gr);margin-left:5px}
 </style>""", unsafe_allow_html=True)
 
 # ---------- Collecte ----------
@@ -134,6 +151,301 @@ def to_excel(rows):
     df[["date", "theme", "title", "desc", "source", "link"]].to_excel(buf, index=False)
     return buf.getvalue()
 
+# ---------- Classification automatique (heuristique, sans IA) ----------
+# (code ISO, nom affiché, motifs recherchés dans le titre en minuscules)
+COUNTRIES = [
+    ("RU", "Russie", ["russie", "russia", "russian", "russe", "russes", "moscou", "moscow", "kremlin"]),
+    ("IR", "Iran", ["iran"]),
+    ("KP", "Corée du Nord", ["corée du nord", "north korea", "pyongyang", "dprk"]),
+    ("CN", "Chine", ["chine", "china", "chinese", "chinois", "chinoise", "pékin", "beijing", "hong kong"]),
+    ("US", "États-Unis", ["états-unis", "etats-unis", "united states", "u.s.", " us ", " usa ", "washington", "américain", "american"]),
+    ("EU", "Union européenne", [" ue ", " eu ", "union européenne", "european union", "bruxelles", "brussels", "européen", "european"]),
+    ("FR", "France", ["france", "français", "française", "acpr", " amf ", "tracfin", "bercy"]),
+    ("GB", "Royaume-Uni", ["royaume-uni", "united kingdom", " uk ", "britain", "british", "britannique", "londres", "london", " fca ", "ofsi"]),
+    ("UA", "Ukraine", ["ukraine", "ukrain"]),
+    ("BY", "Biélorussie", ["biélorussie", "belarus"]),
+    ("SY", "Syrie", ["syrie", "syria"]),
+    ("VE", "Venezuela", ["venezuela"]),
+    ("CU", "Cuba", ["cuba"]),
+    ("AE", "Émirats arabes unis", ["émirats", "emirates", " uae ", "dubaï", "dubai"]),
+    ("TR", "Turquie", ["turquie", "turkey", "türkiye"]),
+    ("IL", "Israël", ["israël", "israel"]),
+    ("LB", "Liban", ["liban", "lebanon", "hezbollah"]),
+    ("AF", "Afghanistan", ["afghanistan", "taliban"]),
+    ("MM", "Myanmar", ["myanmar", "birmanie"]),
+    ("IN", "Inde", [" inde ", "india"]),
+    ("DE", "Allemagne", ["allemagne", "germany", "german", "bafin"]),
+    ("CH", "Suisse", ["suisse", "switzerland", "swiss", "finma"]),
+    ("HT", "Haïti", ["haïti", "haiti"]),
+    ("NG", "Nigeria", ["nigeria"]),
+    ("ZA", "Afrique du Sud", ["afrique du sud", "south africa"]),
+    ("MX", "Mexique", ["mexique", "mexico", "mexican"]),
+    ("VN", "Vietnam", ["vietnam", "viêt nam"]),
+]
+
+# (clé, libellé, couleur écran, couleur export, motifs) — l'ordre fixe la priorité
+MEASURES = [
+    ("gel", "Gel des avoirs", "#ff4d6d", "#c62839", ["gel des avoirs", "gel d'avoirs", "asset freeze", "assets frozen", "frozen assets", "freezes assets"]),
+    ("liste", "Liste GAFI", "#ffb020", "#b7791f", ["liste grise", "grey list", "gray list", "greylist", "liste noire", "black list", "high-risk jurisdiction", "juridictions à haut risque"]),
+    ("amende", "Amende", "#ff7a45", "#c2541b", ["amende", "fined", " fine ", " fines ", "pénalité", "penalty", "penalties", "settlement", "commission des sanctions"]),
+    ("sanction", "Sanction", "#ff4d6d", "#c62839", ["sanction", "designat", "désign", "sdn list", "blacklist", "paquet de"]),
+    ("embargo", "Embargo / export", "#a855f7", "#7e3fbf", ["embargo", "export control", "contrôle des exportations", "contrôles à l'exportation", "double usage", "dual-use", "dual use"]),
+    ("enquete", "Enquête / poursuite", "#00d4ff", "#1a6fa0", ["enquête", "investigation", "probe", "charged", "inculp", "mis en examen", "poursuit", "indict", "arrest", "interpell", "condamn", "convicted", "perquisition", "raid"]),
+    ("regle", "Réglementation", "#00ff88", "#1d8a55", ["règlement", "directive", "guidelines", "lignes directrices", "consultation", "amlr", "mica", "dora", "entre en vigueur", "applicable", "rule", "framework", "standard"]),
+]
+NEWS_MEASURE = ("news", "Actualité", "#52708a", "#6b7c8c")
+SANCTION_KINDS = {"gel", "liste", "amende", "sanction", "embargo"}
+SCREEN_COLOR = {m[0]: m[2] for m in MEASURES} | {"news": NEWS_MEASURE[2]}
+EXPORT_COLOR = {m[0]: m[3] for m in MEASURES} | {"news": NEWS_MEASURE[3]}
+
+AUTHORITIES = [
+    ("OFAC", ["ofac"]), ("Trésor US", ["treasury", "trésor américain"]), ("OFSI", ["ofsi"]),
+    ("Conseil de l'UE", ["conseil de l'ue", "council of the eu", "eu council", "commission européenne", "european commission"]),
+    ("ONU", [" onu ", "united nations", "nations unies", "conseil de sécurité", "security council"]),
+    ("GAFI", ["gafi", "fatf"]), ("AMLA", ["amla"]), ("ACPR", ["acpr"]), ("AMF", [" amf ", "autorité des marchés"]),
+    ("Tracfin", ["tracfin"]), ("EBA", [" eba ", "autorité bancaire européenne", "european banking authority"]),
+    ("ESMA", ["esma"]), ("BCE", [" bce ", " ecb ", "banque centrale européenne"]), ("FCA", [" fca "]),
+    ("FinCEN", ["fincen"]), ("SEC", [" sec "]), ("DOJ", [" doj ", "department of justice", "justice department"]),
+    ("BIS", [" bis ", "bureau of industry"]), ("AFA", [" afa ", "agence française anticorruption"]),
+    ("PNF", [" pnf ", "parquet national financier"]), ("FINMA", ["finma"]), ("BaFin", ["bafin"]),
+]
+
+_STOP = set("""le la les l un une des du de d au aux et en à a sur pour par avec dans selon après avant contre face vers
+ce cette ces il elle ils elles on nous voici est sont sera plus moins fin premier première nouveau nouvelle nouveaux nouvelles
+comment pourquoi quand quel quelle quels quelles qui que quoi
+the a an of and to in on for with by at from as is are be will can could should would it its his her their new first top more
+how why what who when where this that these those over under amid after before into about
+exclusive exclusif breaking update live analyse analysis opinion tribune interview vidéo video podcast édito
+sanction sanctions sanctionne sanctionné sanctionnée sanctionnés sanctionnées sanctioned sanctioning
+gel avoirs embargo amende amendes liste grise noire grey gray list
+treasury trésor targets target designates designated imposes impose adds announces says said council conseil commission
+blanchiment fraude corruption conformité terrorisme financement crypto cryptos cryptomonnaie cryptomonnaies
+money laundering aml lcb-ft régulateur regulator rapport report guide export exports
+ue eu us uk usa u.s onu un
+lundi mardi mercredi jeudi vendredi samedi dimanche janvier février mars avril mai juin juillet août septembre octobre novembre décembre
+monday tuesday wednesday thursday friday saturday sunday january february march april may june july august september october november december""".split())
+_STOP |= {w.lower() for a, _ in AUTHORITIES for w in a.split()}
+_STOP |= {w.strip(" .").lower() for _, n, ps in COUNTRIES for p in ps + [n] for w in p.split()}
+_CONN = {"de", "du", "des", "of", "and", "&", "la", "le", "el", "al", "bin", "van", "von", "y"}
+
+def _norm_text(s):
+    return " " + re.sub(r"[,;:!?()\[\]«»\"“”‘’|/]", " ", (s or "").lower()) + " "
+
+def headline_of(it):
+    t, src = it["title"], it.get("source") or ""
+    if src and t.endswith(" - " + src):
+        return t[: -(len(src) + 3)].strip()
+    return re.sub(r"\s+-\s+[^-]{2,60}$", "", t).strip()
+
+def detect_country(text):
+    best = None
+    for code, name, pats in COUNTRIES:
+        pos = [text.find(p) for p in pats if p in text]
+        if pos and (best is None or min(pos) < best[0]):
+            best = (min(pos), code, name)
+    return (best[1], best[2]) if best else ("", "—")
+
+def detect_measure(text):
+    for key, label, _, _, pats in MEASURES:
+        if any(p in text for p in pats):
+            return key, label
+    return NEWS_MEASURE[0], NEWS_MEASURE[1]
+
+def detect_authorities(text):
+    return ", ".join([n for n, pats in AUTHORITIES if any(p in text for p in pats)][:2])
+
+def extract_entity(h):
+    """Premier groupe de mots à majuscule qui n'est ni un pays, ni une autorité, ni un mot courant."""
+    groups, cur = [], []
+    for w in re.findall(r"[\w'’&.\-]+", h):
+        base = re.sub(r"^(?:[LlDdJj]|Qu|qu)['’]", "", w).strip(".'’-")
+        if not base:
+            continue
+        if base[:1].isupper():
+            cur.append(base)
+        elif cur and base.lower() in _CONN:
+            cur.append(base)
+        else:
+            if cur: groups.append(cur)
+            cur = []
+    if cur: groups.append(cur)
+    for g in groups:
+        while g and (g[0].lower() in _STOP or g[0].lower() in _CONN): g = g[1:]
+        while g and (g[-1].lower() in _STOP or g[-1].lower() in _CONN): g = g[:-1]
+        if g and len(" ".join(g)) > 2:
+            return " ".join(g[:5])
+    return ""
+
+def enrich(it):
+    h = headline_of(it)
+    text = _norm_text(h + " " + it["desc"])
+    cc, country = detect_country(text)
+    mkey, measure = detect_measure(text)
+    auth = detect_authorities(text)
+    entity = extract_entity(h) or (country if cc else (auth or "—"))
+    return {**it, "headline": h, "entity": entity, "cc": cc, "country": country,
+            "mkey": mkey, "measure": measure, "auth": auth}
+
+def flag(cc):
+    return "".join(chr(0x1F1E6 + ord(c) - 65) for c in cc) if len(cc) == 2 and cc.isalpha() else ""
+
+def fmt_date(ts):
+    return datetime.fromtimestamp(ts).strftime("%d/%m/%Y") if ts else "—"
+
+def table_html(rows):
+    heads = ["Entité / cible*", "Catégorie", "Description", "Pays", "Mesure", "Date", "Autorité / source"]
+    th = "".join(f"<th>{h}</th>" for h in heads)
+    trs = []
+    for r in rows:
+        col = SCREEN_COLOR.get(r["mkey"], "#52708a")
+        main = html.escape(r["auth"] or r["source"] or "—")
+        sub = f'<br><span class="meta">{html.escape(r["source"])}</span>' if r["auth"] and r["source"] else ""
+        pays = f'{flag(r["cc"])} {html.escape(r["country"])}' if r["cc"] else "—"
+        trs.append(
+            f'<tr><td class="ent">{html.escape(r["entity"])}</td>'
+            f'<td><span class="tag">{html.escape(r["theme"])}</span></td>'
+            f'<td><a href="{html.escape(r["link"])}" target="_blank">{html.escape(r["headline"])}</a></td>'
+            f'<td style="white-space:nowrap">{pays}</td>'
+            f'<td><span class="mz" style="color:{col};border-color:{col}">{html.escape(r["measure"])}</span></td>'
+            f'<td class="meta" style="white-space:nowrap">{fmt_date(r["ts"])}</td>'
+            f'<td>{main}{sub}</td></tr>')
+    if not trs:
+        trs = ['<tr><td colspan="7" class="meta">Aucun élément.</td></tr>']
+    return f'<div class="wwrap"><table class="wtable"><thead><tr>{th}</tr></thead><tbody>{"".join(trs)}</tbody></table></div>'
+
+# ---------- Exports (image, PDF, Excel) ----------
+EXPORT_COLS = [("Entité / cible", .15), ("Catégorie", .12), ("Description", .33), ("Pays", .12),
+               ("Mesure", .11), ("Date", .07), ("Autorité", .10)]
+GOLD = "#C9A227"
+FOOTER = "CWP – Compliance Watch Platform · informations issues de la presse : à vérifier auprès des sources officielles (OFAC, UE, ONU, DG Trésor…)"
+
+def _plain(s):
+    return re.sub(r"[\U00010000-\U0010FFFF]", "", str(s or "")).strip()
+
+def _cells(r):
+    return [r["entity"], r["theme"], r["headline"],
+            f'{r["cc"]} · {r["country"]}' if r["cc"] else "—",
+            r["measure"], fmt_date(r["ts"]),
+            " · ".join(x for x in [r["auth"], r["source"]] if x) or "—"]
+
+def _font(size, bold=False):
+    names = (["DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"] if bold
+             else ["DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"])
+    from PIL import ImageFont
+    for n in names:
+        try: return ImageFont.truetype(n, size)
+        except Exception: pass
+    try: return ImageFont.load_default(size=size)
+    except Exception: return ImageFont.load_default()
+
+def _wrap(d, text, font, width, max_lines):
+    lines, cur = [], ""
+    for w in text.split():
+        t = f"{cur} {w}".strip()
+        if not cur or d.textlength(t, font=font) <= width:
+            cur = t
+        else:
+            lines.append(cur); cur = w
+    if cur: lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        last = lines[-1]
+        while last and d.textlength(last + "…", font=font) > width:
+            last = last[:-1]
+        lines[-1] = last.rstrip() + "…"
+    return lines or [""]
+
+def make_png(rows, label, period_txt):
+    from PIL import Image, ImageDraw
+    W, M, pad, lh = 1800, 48, 12, 26
+    tw = W - 2 * M
+    f_title, f_sub, f_head = _font(44, True), _font(22), _font(17, True)
+    f_cell, f_bold, f_foot = _font(18), _font(18, True), _font(15)
+    tmp = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    xs, x = [], M
+    for _, fr in EXPORT_COLS:
+        xs.append((x, int(tw * fr))); x += int(tw * fr)
+    prepared = []
+    for r in rows:
+        wrapped = [_wrap(tmp, _plain(c), f_bold if j in (0, 4) else f_cell, w - 2 * pad, 4 if j == 2 else 3)
+                   for j, (c, (_, w)) in enumerate(zip(_cells(r), xs))]
+        prepared.append((r, wrapped, max(len(l) for l in wrapped) * lh + 2 * pad))
+    top, head_h = M + 150, 50
+    H = top + head_h + sum(p[2] for p in prepared) + 90
+    img = Image.new("RGB", (W, H), "white"); d = ImageDraw.Draw(img)
+    d.rounded_rectangle([M, M, W - M, M + 110], radius=18, fill="#fbf7ea", outline="#e8dcb0", width=2)
+    d.text((M + 30, M + 16), "Weekly Watch — Sécurité financière", font=f_title, fill=GOLD)
+    d.text((M + 32, M + 72), _plain(f"{label} · {period_txt}"), font=f_sub, fill="#6b6b6b")
+    y = top
+    for (name, _), (x0, _) in zip(EXPORT_COLS, xs):
+        d.text((x0 + pad, y + 15), name.upper(), font=f_head, fill="#2b2b2b")
+    d.line([M, y + head_h - 2, W - M, y + head_h - 2], fill=GOLD, width=3)
+    y += head_h
+    for i, (r, wrapped, h) in enumerate(prepared):
+        if i % 2: d.rectangle([M, y, W - M, y + h], fill="#faf8f2")
+        for j, (lines, (x0, _)) in enumerate(zip(wrapped, xs)):
+            font, color = f_cell, "#1f2937"
+            if j == 0: font, color = f_bold, "#0f3d66"
+            if j == 4: font, color = f_bold, EXPORT_COLOR.get(r["mkey"], "#6b7c8c")
+            for k, line in enumerate(lines):
+                d.text((x0 + pad, y + pad + k * lh), line, font=font, fill=color)
+        y += h
+        d.line([M, y, W - M, y], fill="#e6e2d6", width=1)
+    d.text((M, y + 30), _plain(f"{FOOTER} · généré le {datetime.now():%d/%m/%Y %H:%M}"), font=f_foot, fill="#8a8a8a")
+    buf = io.BytesIO(); img.save(buf, "PNG")
+    return buf.getvalue()
+
+def make_pdf(rows, label, period_txt):
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from xml.sax.saxutils import escape
+
+    def txt(s):  # polices PDF standard : jeu de caractères cp1252
+        return escape(_plain(s).encode("cp1252", "ignore").decode("cp1252"))
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=12 * mm, rightMargin=12 * mm,
+                            topMargin=12 * mm, bottomMargin=12 * mm, title="Weekly Watch – Sécurité financière")
+    gold = colors.HexColor(GOLD)
+    s_t = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=20, textColor=gold, leading=24)
+    s_s = ParagraphStyle("s", fontName="Helvetica", fontSize=9, textColor=colors.HexColor("#6b6b6b"), leading=12)
+    s_h = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=7.5, textColor=colors.HexColor("#2b2b2b"), leading=10)
+    s_c = ParagraphStyle("c", fontName="Helvetica", fontSize=8, leading=10, textColor=colors.HexColor("#1f2937"))
+    s_b = ParagraphStyle("b", parent=s_c, fontName="Helvetica-Bold", textColor=colors.HexColor("#0f3d66"))
+    data = [[Paragraph(txt(n.upper()), s_h) for n, _ in EXPORT_COLS]]
+    for r in rows:
+        c = _cells(r)
+        link = escape(r["link"], {'"': "&quot;"})
+        data.append([
+            Paragraph(txt(c[0]), s_b), Paragraph(txt(c[1]), s_c),
+            Paragraph(f'<link href="{link}" color="#1a4e8a">{txt(c[2])}</link>', s_c),
+            Paragraph(txt(c[3]), s_c),
+            Paragraph(f'<font color="{EXPORT_COLOR.get(r["mkey"], "#6b7c8c")}"><b>{txt(c[4])}</b></font>', s_c),
+            Paragraph(txt(c[5]), s_c), Paragraph(txt(c[6]), s_c)])
+    table = Table(data, colWidths=[doc.width * fr for _, fr in EXPORT_COLS], repeatRows=1)
+    table.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, 0), 1.2, gold),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.HexColor("#e6e2d6")),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#faf8f2")]),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story = [Paragraph(txt("Weekly Watch — Sécurité financière"), s_t),
+             Paragraph(txt(f"{label} · {period_txt} · {len(rows)} éléments"), s_s), Spacer(1, 5 * mm), table,
+             Spacer(1, 4 * mm), Paragraph(txt(f"{FOOTER} · généré le {datetime.now():%d/%m/%Y %H:%M}"), s_s)]
+    doc.build(story)
+    return buf.getvalue()
+
+def to_excel_watch(rows):
+    df = pd.DataFrame([{n: v for (n, _), v in zip(EXPORT_COLS, _cells(r))} | {"Lien": r["link"]} for r in rows])
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False)
+    return buf.getvalue()
+
+# ---------- Affichage des cartes (pages Veille / alertes) ----------
 def render(it, new=False):
     d = datetime.fromtimestamp(it["ts"]).strftime("%d/%m/%Y %H:%M") if it["ts"] else "—"
     badge = '<span class="tag new">NOUVEAU</span>' if new else ""
@@ -160,25 +472,91 @@ with st.sidebar:
 items = fetch_all()
 seen = load_seen()
 new_links = {i["link"] for i in items} - seen if seen else set()
-if page == "🏠 Dashboard" and items:
-    pass  # marquage conservé pendant l'affichage, mémorisé après rendu
+
+PERIODS = {"24 h": 1, "7 jours": 7, "30 jours": 30}
 
 # ---------- Pages ----------
 if page == "🏠 Dashboard":
-    st.markdown("# 🛡️ Dashboard — CWP")
-    st.caption(f"Dernière mise à jour : {datetime.now():%d/%m/%Y %H:%M} · flux actualisés toutes les 15 min")
+    rows_all = [enrich(i) for i in items]
+    hero = st.empty()
+
+    # Statistiques (inchangées)
     c = st.columns(4)
     c[0].markdown(f'<div class="card"><div class="meta">ARTICLES</div><div class="kpi">{len(items)}</div></div>', unsafe_allow_html=True)
     c[1].markdown(f'<div class="card"><div class="meta">NOUVEAUX</div><div class="kpi">{len(new_links)}</div></div>', unsafe_allow_html=True)
     c[2].markdown(f'<div class="card"><div class="meta">THÈMES</div><div class="kpi">{len(THEMES)}</div></div>', unsafe_allow_html=True)
     c[3].markdown(f'<div class="card"><div class="meta">CONCEPTS</div><div class="kpi">{len(load_concepts())}</div></div>', unsafe_allow_html=True)
+
+    # Réglages
+    c1, c2, c3 = st.columns([1.3, 1.7, 1])
+    period = c1.radio("Période", list(PERIODS), index=1, horizontal=True)
+    view = c2.radio("Affichage", ["🎯 Sanctions & mesures", "📰 Toutes les actualités"], horizontal=True)
+    nmax = c3.slider("Lignes du tableau", 5, 50, 20)
+    sanc_only = view.startswith("🎯")
+
+    since = time.time() - PERIODS[period] * 86400
+    in_period = [r for r in rows_all if r["ts"] >= since]
+    pool = [r for r in in_period if not sanc_only or r["mkey"] in SANCTION_KINDS]
+    fallback = not pool
+    if fallback:
+        pool = [r for r in rows_all if not sanc_only or r["mkey"] in SANCTION_KINDS]
+    rows = pool[:nmax]
+
+    d1 = datetime.now()
+    if not fallback:
+        d0 = datetime.fromtimestamp(since)
+    else:
+        stamps = [r["ts"] for r in rows if r["ts"]]
+        d0 = datetime.fromtimestamp(min(stamps)) if stamps else d1
+    period_txt = f"Du {d0:%d/%m/%Y} au {d1:%d/%m/%Y}"
+    label = "Dernières sanctions & mesures" if sanc_only else "Dernières actualités sécurité financière"
+
+    hero.markdown(
+        f'<div class="hero"><div class="hero-t">Weekly Watch <span>— Sécurité financière</span></div>'
+        f'<div class="hero-s">{period_txt.upper()} · SANCTIONS · GELS D\'AVOIRS · AMENDES · LISTES GAFI · EMBARGOS · '
+        f'MAJ {d1:%d/%m/%Y %H:%M}</div></div>', unsafe_allow_html=True)
+
+    # Pays les plus cités
+    cnt = Counter((r["cc"], r["country"]) for r in (in_period or rows_all) if r["cc"])
+    if cnt:
+        chips = "".join(f'<span class="chip">{flag(cc)} {html.escape(n)}<b>{v}</b></span>' for (cc, n), v in cnt.most_common(10))
+        st.markdown(f'<div class="meta" style="margin:6px 0">PAYS / ZONES LES PLUS CITÉS</div>{chips}', unsafe_allow_html=True)
+
+    # Tableau principal
+    st.markdown(f"### {'🎯' if sanc_only else '📰'} {label}")
+    if fallback:
+        st.caption("Aucun élément sur la période choisie : affichage des plus récents disponibles.")
+    st.markdown(table_html(rows), unsafe_allow_html=True)
+    st.caption("* Entité, pays, mesure et autorité sont détectés automatiquement à partir du titre : à vérifier sur la source.")
+
+    # Exports
+    e = st.columns([1, 1, 1, 3])
+    stamp = f"{d1:%Y%m%d}"
+    try:
+        e[0].download_button("🖼️ Image (PNG)", make_png(rows, label, period_txt), f"weekly_watch_{stamp}.png",
+                             "image/png", use_container_width=True)
+    except Exception as ex:
+        e[0].caption(f"PNG indisponible : {ex}")
+    try:
+        e[1].download_button("📄 Rapport PDF", make_pdf(rows, label, period_txt), f"weekly_watch_{stamp}.pdf",
+                             "application/pdf", use_container_width=True)
+    except ImportError:
+        e[1].caption("PDF : ajoutez « reportlab » à requirements.txt")
+    e[2].download_button("📥 Excel", to_excel_watch(rows), f"weekly_watch_{stamp}.xlsx",
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+
+    # Alertes par mots-clés
     alerts = [i for i in items if hits(i, KWS)]
+    shown = set()
     if alerts:
         st.markdown(f"### 🚨 Alertes ({len(alerts)})")
-        for it in alerts[:8]: render(it, it["link"] in new_links)
-    st.markdown("### Dernières mises à jour")
-    for it in items[:15]:
-        render(it, it["link"] in new_links)
+        for it in alerts[:8]:
+            render(it, it["link"] in new_links); shown.add(it["link"])
+
+    with st.expander("🗂️ Vue détaillée en cartes (avec résumé)"):
+        for it in [i for i in items if i["link"] not in shown][:15]:
+            render(it, it["link"] in new_links)
+
     save_seen(seen | {i["link"] for i in items})
 
 elif page == "📡 Veille":
