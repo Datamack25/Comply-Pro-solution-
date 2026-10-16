@@ -31,6 +31,21 @@ THEMES = {
     "Crypto / DORA / MiCA": [gnews("MiCA OR DORA OR \"travel rule\" crypto conformité")],
 }
 
+# Requêtes ciblées sur des mesures effectivement prononcées (utilisées par la page d'accueil)
+ACTION_FEEDS = {
+    "Sanctions": [gnews("\"impose des sanctions\" OR \"nouvelles sanctions\" OR \"paquet de sanctions\" adopté"),
+                  gnews("OFAC designates OR \"imposes sanctions\" OR \"sanctions on\"", "en"),
+                  gnews("\"gel des avoirs\" OR \"asset freeze\" OR \"assets frozen\""),
+                  gnews("OFSI OR \"EU Council\" sanctions adopted listing", "en")],
+    "Régulateurs (ACPR/AMF/EBA)": [gnews("ACPR \"commission des sanctions\" amende OR blâme"),
+                                   gnews("AMF \"commission des sanctions\" amende"),
+                                   gnews("fined million anti-money laundering OR AML failings", "en"),
+                                   gnews("FinCEN OR OFAC settlement penalty million", "en")],
+    "Embargos": [gnews("embargo imposé OR \"interdiction d'exportation\" OR \"contrôles à l'exportation\" annonce"),
+                 gnews("BIS \"entity list\" adds OR \"export ban\" imposed", "en")],
+    "GAFI / FATF": [gnews("GAFI ajoute OR retire \"liste grise\""), gnews("FATF adds OR removes grey list", "en")],
+}
+
 OFFICIAL_LINKS = {
     "OFAC – Recent Actions": "https://ofac.treasury.gov/recent-actions",
     "UE – Carte des sanctions": "https://www.sanctionsmap.eu",
@@ -113,6 +128,27 @@ def fetch_all():
                                   link=link, ts=ts, source=src))
     return sorted(items, key=lambda x: x["ts"], reverse=True)
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_actions():
+    """Flux ciblés sanctions/embargos, plus profonds (30 articles par requête) pour remonter dans le temps."""
+    out, seen_l = [], set()
+    for theme, urls in ACTION_FEEDS.items():
+        for u in urls:
+            try:
+                feed = feedparser.parse(u)
+            except Exception:
+                continue
+            for e in feed.entries[:30]:
+                link = e.get("link")
+                if not link or link in seen_l:
+                    continue
+                seen_l.add(link)
+                ts = time.mktime(e.published_parsed) if e.get("published_parsed") else 0
+                src = (e.get("source") or {}).get("title", "") if isinstance(e.get("source"), dict) else ""
+                out.append(dict(theme=theme, title=clean(e.get("title"), 160), desc=clean(e.get("summary")),
+                                link=link, ts=ts, source=src))
+    return out
+
 def load_seen():
     if os.path.exists(SEEN_FILE):
         try: return set(json.load(open(SEEN_FILE)))
@@ -170,8 +206,8 @@ COUNTRIES = [
     ("AE", "Émirats arabes unis", ["émirats", "emirates", " uae ", "dubaï", "dubai"]),
     ("TR", "Turquie", ["turquie", "turkey", "türkiye"]),
     ("IL", "Israël", ["israël", "israel"]),
-    ("LB", "Liban", ["liban", "lebanon", "hezbollah"]),
-    ("AF", "Afghanistan", ["afghanistan", "taliban"]),
+    ("LB", "Liban", ["liban", "lebanon"]),
+    ("AF", "Afghanistan", ["afghanistan"]),
     ("MM", "Myanmar", ["myanmar", "birmanie"]),
     ("IN", "Inde", [" inde ", "india"]),
     ("DE", "Allemagne", ["allemagne", "germany", "german", "bafin"]),
@@ -325,6 +361,33 @@ def extract_entity(h):
             return " ".join(g[:5])
     return ""
 
+# Formats et tournures qui ne sont PAS une mesure prononcée
+_NOT_ACTION = ["documentaire", "documentary", "regarder", "à voir", "vidéo", "video", "podcast", "replay", "reportage",
+    "opinion", "tribune", "édito", "editorial", "chronique", "analyse", "analysis", "décryptage", "explainer", "explained",
+    "interview", "entretien", "témoignage", "les dessous", "inside", "comment ", "pourquoi", "how ", "why ", "what ",
+    "faut-il", "should ", "?", "manifestant", "protest", "réclam", "appelle à", "appel à", "calls for", "call for", "urge",
+    "demande un", "demandent un", "accuse", "dénonce", "critique", "menace", "threaten", "pourrait", "envisage",
+    "could ", "may ", "might ", "considers", "weighs", "mulls", "plans to", "prévoit de", "projet de", "proposal",
+    "proposition", "promouvoir", "promote", "contourn", "evade", "evasion", "se dit prêt", "disposée", "disposé",
+    "levée des sanctions", "lift sanctions", "lifts sanctions", "allègement", "eases sanctions"]
+# Verbes indiquant une décision effectivement prise
+_ACTION = ["adopte", "adopté", "adopts", "adopted", "impose", "imposes", "imposed", "inflige", "infligé", "sanctionne",
+    "sanctionné", "sanctions ", "sanctioned", "designat", "désigne", "inscrit", "ajoute", "adds", "added", "listed",
+    "gèle", "gelé", "gel des avoirs", "freezes", "frozen", "froze", "prononce", "prononcé", "condamn", "fined", "fines ",
+    "amende de", "amende record", "pénalité de", "penalty of", "settle", "règle", "agrees to pay", "accepte de payer",
+    "to pay", "pays ", "paiera", "prolonge", "prolongé", "extends", "extended", "renouvelle", "renews", "élargit",
+    "expands", "interdit", "bans", "banned", "blacklist", "entity list", "nouveau paquet", "new package", "22e paquet",
+    "e paquet", "th package", "retire", "removes", "removed", "exits grey", "sort de la liste", "placé sur", "placed on",
+    "maintient", "keeps", "embargo sur", "arms embargo", "export ban"]
+
+def is_action(r):
+    if r["mkey"] not in SANCTION_KINDS:
+        return False
+    t = " " + r["headline"].lower() + " "
+    if any(x in t for x in _NOT_ACTION):
+        return False
+    return any(x in t for x in _ACTION)
+
 def detect_entity(h, country):
     ent = extract_entity(h)
     if not ent:
@@ -402,26 +465,56 @@ FOOTER = "CWP – Compliance Watch Platform · informations issues de la presse 
 def _plain(s):
     return re.sub(r"[\U00010000-\U0010FFFF]", "", str(s or "")).strip()
 
+def _ascii(s):
+    import unicodedata
+    s = (s.replace("—", "-").replace("–", "-").replace("’", "'").replace("‘", "'").replace("«", '"')
+          .replace("»", '"').replace("…", "...").replace("€", "EUR").replace("·", "-").replace("\u00a0", " "))
+    return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+
 def _cells(r):
     return [r["entity"], r["theme"], r["headline"],
             r["country"] if r["cc"] else "—",
             r["measure"], r["amount"], fmt_date(r["ts"]),
             " · ".join(x for x in [r["auth"], r["source"]] if x) or "—"]
 
-def _font(size, bold=False):
+FONT_URLS = {False: "https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans.ttf",
+             True: "https://cdn.jsdelivr.net/npm/dejavu-fonts-ttf@2.37.3/ttf/DejaVuSans-Bold.ttf"}
+
+def _font_path(bold):
+    """Police avec accents : reportlab (Vera) > système (DejaVu) > téléchargement (DejaVu, mis en cache)."""
+    cands = []
     try:
         import reportlab
-        rl = os.path.join(os.path.dirname(reportlab.__file__), "fonts")
+        cands.append(os.path.join(os.path.dirname(reportlab.__file__), "fonts", "VeraBd.ttf" if bold else "Vera.ttf"))
     except Exception:
-        rl = ""
-    names = ([os.path.join(rl, "VeraBd.ttf"), "DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"] if bold
-             else [os.path.join(rl, "Vera.ttf"), "DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"])
+        pass
+    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    cands += [name, f"/usr/share/fonts/truetype/dejavu/{name}"]
+    for c in cands:
+        if os.path.exists(c):
+            return c
+    local = os.path.join("/tmp", name)
+    if not os.path.exists(local):
+        try:
+            r = requests.get(FONT_URLS[bold], timeout=10)
+            if r.ok and len(r.content) > 100_000:
+                open(local, "wb").write(r.content)
+        except Exception:
+            pass
+    return local if os.path.exists(local) else None
+
+def _font(size, bold=False):
     from PIL import ImageFont
-    for n in names:
-        try: return ImageFont.truetype(n, size)
-        except Exception: pass
-    try: return ImageFont.load_default(size=size)
-    except Exception: return ImageFont.load_default()
+    path = _font_path(bold)
+    if path:
+        try:
+            f = ImageFont.truetype(path, size); f.has_accents = True; return f
+        except Exception:
+            pass
+    try: f = ImageFont.load_default(size=size)
+    except Exception: f = ImageFont.load_default()
+    f.has_accents = False
+    return f
 
 def _wrap(d, text, font, width, max_lines):
     lines, cur = [], ""
@@ -443,6 +536,7 @@ def _wrap(d, text, font, width, max_lines):
 def make_png(rows, label, period_txt):
     from PIL import Image, ImageDraw
     W, M, pad, lh = 1800, 48, 12, 26
+    T = _plain if _font(18).has_accents else (lambda x: _ascii(_plain(x)))
     tw = W - 2 * M
     f_title, f_sub, f_head = _font(44, True), _font(22), _font(17, True)
     f_cell, f_bold, f_foot = _font(18), _font(18, True), _font(15)
@@ -452,18 +546,18 @@ def make_png(rows, label, period_txt):
         xs.append((x, int(tw * fr))); x += int(tw * fr)
     prepared = []
     for r in rows:
-        wrapped = [_wrap(tmp, _plain(c), f_bold if j in (0, 4, 5) else f_cell, w - 2 * pad, 4 if j == 2 else 3)
+        wrapped = [_wrap(tmp, T(c), f_bold if j in (0, 4, 5) else f_cell, w - 2 * pad, 4 if j == 2 else 3)
                    for j, (c, (_, w)) in enumerate(zip(_cells(r), xs))]
         prepared.append((r, wrapped, max(len(l) for l in wrapped) * lh + 2 * pad))
     top, head_h = M + 150, 50
     H = top + head_h + sum(p[2] for p in prepared) + 90
     img = Image.new("RGB", (W, H), "white"); d = ImageDraw.Draw(img)
     d.rounded_rectangle([M, M, W - M, M + 110], radius=18, fill="#fbf7ea", outline="#e8dcb0", width=2)
-    d.text((M + 30, M + 16), "Weekly Watch — Sécurité financière", font=f_title, fill=GOLD)
-    d.text((M + 32, M + 72), _plain(f"{label} · {period_txt}"), font=f_sub, fill="#6b6b6b")
+    d.text((M + 30, M + 16), T("Weekly Watch — Sécurité financière"), font=f_title, fill=GOLD)
+    d.text((M + 32, M + 72), T(f"{label} · {period_txt}"), font=f_sub, fill="#6b6b6b")
     y = top
     for (name, _), (x0, _) in zip(EXPORT_COLS, xs):
-        d.text((x0 + pad, y + 15), name.upper(), font=f_head, fill="#2b2b2b")
+        d.text((x0 + pad, y + 15), T(name.upper()), font=f_head, fill="#2b2b2b")
     d.line([M, y + head_h - 2, W - M, y + head_h - 2], fill=GOLD, width=3)
     y += head_h
     for i, (r, wrapped, h) in enumerate(prepared):
@@ -486,7 +580,7 @@ def make_png(rows, label, period_txt):
                 d.text((x0 + pad + (dx if k == 0 else 0), y + pad + k * lh), line, font=font, fill=color)
         y += h
         d.line([M, y, W - M, y], fill="#e6e2d6", width=1)
-    d.text((M, y + 30), _plain(f"{FOOTER} · généré le {datetime.now():%d/%m/%Y %H:%M}"), font=f_foot, fill="#8a8a8a")
+    d.text((M, y + 30), T(f"{FOOTER} · généré le {datetime.now():%d/%m/%Y %H:%M}"), font=f_foot, fill="#8a8a8a")
     buf = io.BytesIO(); img.save(buf, "PNG")
     return buf.getvalue()
 
@@ -586,7 +680,9 @@ PERIODS = {"24 h": 1, "7 jours": 7, "30 jours": 30}
 
 # ---------- Pages ----------
 if page == "🏠 Dashboard":
-    rows_all = [enrich(i) for i in items]
+    _links = {i["link"] for i in items}
+    rows_all = sorted([enrich(i) for i in items] + [enrich(i) for i in fetch_actions() if i["link"] not in _links],
+                      key=lambda r: r["ts"], reverse=True)
     hero = st.empty()
 
     # Statistiques (inchangées)
@@ -599,16 +695,17 @@ if page == "🏠 Dashboard":
     # Réglages
     c1, c2, c3 = st.columns([1.3, 1.7, 1])
     period = c1.radio("Période", list(PERIODS), index=1, horizontal=True)
-    view = c2.radio("Affichage", ["🎯 Sanctions & mesures", "📰 Toutes les actualités"], horizontal=True)
+    view = c2.radio("Affichage", ["🎯 Sanctions & embargos prononcés", "📰 Toutes les actualités"], horizontal=True)
     nmax = c3.slider("Lignes du tableau", 5, 50, 20)
     sanc_only = view.startswith("🎯")
 
     since = time.time() - PERIODS[period] * 86400
     in_period = [r for r in rows_all if r["ts"] >= since]
-    pool = [r for r in in_period if not sanc_only or r["mkey"] in SANCTION_KINDS]
+    keep = (lambda r: is_action(r)) if sanc_only else (lambda r: True)
+    pool = [r for r in in_period if keep(r)]
     fallback = not pool
-    if fallback:
-        pool = [r for r in rows_all if not sanc_only or r["mkey"] in SANCTION_KINDS]
+    if fallback:  # aucune mesure récente : on affiche les dernières mesures connues (plus anciennes)
+        pool = [r for r in rows_all if keep(r)]
     rows = pool[:nmax]
 
     d1 = datetime.now()
@@ -618,7 +715,8 @@ if page == "🏠 Dashboard":
         stamps = [r["ts"] for r in rows if r["ts"]]
         d0 = datetime.fromtimestamp(min(stamps)) if stamps else d1
     period_txt = f"Du {d0:%d/%m/%Y} au {d1:%d/%m/%Y}"
-    label = "Dernières sanctions & mesures" if sanc_only else "Dernières actualités sécurité financière"
+    label = ("Sanctions & embargos prononcés" if not fallback else "Dernières sanctions & embargos connus") if sanc_only \
+        else "Dernières actualités sécurité financière"
 
     hero.markdown(
         f'<div class="hero"><div class="hero-t">Weekly Watch <span>— Sécurité financière</span></div>'
@@ -634,7 +732,11 @@ if page == "🏠 Dashboard":
     # Tableau principal
     st.markdown(f"### {'🎯' if sanc_only else '📰'} {label}")
     if fallback:
-        st.caption("Aucun élément sur la période choisie : affichage des plus récents disponibles.")
+        st.info("Aucune sanction ni embargo prononcé sur la période choisie : "
+                "affichage des dernières mesures connues, plus anciennes.")
+    if sanc_only:
+        st.caption("Seules les décisions effectivement prises sont retenues (sanction, gel, amende, embargo, liste GAFI). "
+                   "Documentaires, opinions, appels, projets et simples actualités sont exclus.")
     st.markdown(table_html(rows), unsafe_allow_html=True)
     st.caption("* Entité, pays, mesure et autorité sont détectés automatiquement à partir du titre : à vérifier sur la source.")
 
