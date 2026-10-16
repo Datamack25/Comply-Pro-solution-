@@ -216,6 +216,12 @@ comment pourquoi quand quel quelle quels quelles qui que quoi
 the a an of and to in on for with by at from as is are be will can could should would it its his her their new first top more
 how why what who when where this that these those over under amid after before into about
 exclusive exclusif breaking update live analyse analysis opinion tribune interview vidéo video podcast édito
+sources source devant derrière regarder documentaire reportage enquête décryptage infographie carte vidéos photos
+capitole parlement parliament gouvernement government ministère ministry ministre minister président president
+présidente patron patronne chef chief ceo directeur director premier ministre manifestants protesters
+congrès congress sénat senate assemblée maison blanche white house élysée matignon
+selon alors face voici voilà pourquoi comment ici là
+nord sud est ouest north south east west
 sanction sanctions sanctionne sanctionné sanctionnée sanctionnés sanctionnées sanctioned sanctioning
 gel avoirs embargo amende amendes liste grise noire grey gray list
 treasury trésor targets target designates designated imposes impose adds announces says said council conseil commission
@@ -251,6 +257,49 @@ def detect_measure(text):
             return key, label
     return NEWS_MEASURE[0], NEWS_MEASURE[1]
 
+_CUR = r"(?P<cur>€|\$|£|eur(?:os?)?|euros?|usd|dollars?|gbp|livres?(?: sterling)?|chf|francs? suisses?)"
+_NUM = r"(?P<num>\d{1,3}(?:[   .,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)"
+_MULT = r"(?P<mult>milliards?|billions?|bn|mds?|md|millions?|mn|mio|m|mille|k)?"
+_AMOUNT_RES = [
+    re.compile(_CUR + r"\s?" + _NUM + r"\s?" + _MULT + r"\b", re.I),          # $5 million, €1,2 md
+    re.compile(_NUM + r"\s?" + _MULT + r"\s?(?:d['’]\s?|de\s)?" + _CUR, re.I),  # 5 M€, 1,2 milliard d'euros
+]
+_CUR_SYM = {"€": "€", "eur": "€", "euro": "€", "euros": "€", "$": "$", "usd": "$", "dollar": "$", "dollars": "$",
+            "£": "£", "gbp": "£", "livre": "£", "livres": "£", "chf": "CHF"}
+
+def _to_float(num):
+    n = re.sub(r"[   ]", "", num)
+    if re.fullmatch(r"\d{1,3}([.,]\d{3})+", n):          # 1.500.000 / 1,500,000
+        return float(re.sub(r"[.,]", "", n))
+    return float(n.replace(",", "."))
+
+def detect_amount(text):
+    """Renvoie (montant lisible, valeur numérique) ou ("—", 0)."""
+    best = None
+    for rx in _AMOUNT_RES:
+        for m in rx.finditer(text):
+            try:
+                v = _to_float(m.group("num"))
+            except ValueError:
+                continue
+            mult = (m.group("mult") or "").lower()
+            if mult.startswith(("milliard", "billion", "bn", "md")): v *= 1e9
+            elif mult.startswith(("million", "mn", "mio")) or mult == "m": v *= 1e6
+            elif mult in ("mille", "k"): v *= 1e3
+            cur = m.group("cur").lower()
+            sym = next((v2 for k, v2 in _CUR_SYM.items() if cur.startswith(k)), cur.upper())
+            if v < 1000 and not mult:   # « 22e paquet », années, etc. : ignorés
+                continue
+            if best is None or v > best[1]:
+                best = (sym, v)
+    if not best:
+        return "—", 0
+    sym, v = best
+    if v >= 1e9: s_ = f"{v/1e9:.2f}".rstrip("0").rstrip(".").replace(".", ",") + " Md"
+    elif v >= 1e6: s_ = f"{v/1e6:.2f}".rstrip("0").rstrip(".").replace(".", ",") + " M"
+    else: s_ = f"{v:,.0f}".replace(",", " ")
+    return f"{s_} {sym}", v
+
 def detect_authorities(text):
     return ", ".join([n for n, pats in AUTHORITIES if any(p in text for p in pats)][:2])
 
@@ -276,24 +325,53 @@ def extract_entity(h):
             return " ".join(g[:5])
     return ""
 
+def detect_entity(h, country):
+    ent = extract_entity(h)
+    if not ent:
+        return country if country != "—" else "—"
+    low = ent.lower()
+    # un nom de pays ou de ville déjà couvert par la colonne Pays ne devient pas une « entité »
+    if any(low == p.strip() or low == n.lower() for _, n, ps in COUNTRIES for p in ps):
+        return ent if country == "—" else country
+    return ent
+
 def enrich(it):
     h = headline_of(it)
     text = _norm_text(h + " " + it["desc"])
     cc, country = detect_country(text)
     mkey, measure = detect_measure(text)
     auth = detect_authorities(text)
-    entity = extract_entity(h) or (country if cc else (auth or "—"))
+    entity = detect_entity(h, country)
+    amount, amount_v = detect_amount(" " + h + " " + it["desc"] + " ")
     return {**it, "headline": h, "entity": entity, "cc": cc, "country": country,
-            "mkey": mkey, "measure": measure, "auth": auth}
+            "mkey": mkey, "measure": measure, "auth": auth, "amount": amount, "amount_v": amount_v}
+
+FLAG_URL = "https://flagcdn.com/w40/{}.png"
 
 def flag(cc):
-    return "".join(chr(0x1F1E6 + ord(c) - 65) for c in cc) if len(cc) == 2 and cc.isalpha() else ""
+    """Drapeau en image (affichage écran)."""
+    if len(cc) != 2 or not cc.isalpha():
+        return ""
+    return (f'<img src="{FLAG_URL.format(cc.lower())}" alt="{cc}" '
+            f'style="height:14px;width:21px;object-fit:cover;vertical-align:-2px;margin-right:6px;'
+            f'border-radius:2px;box-shadow:0 0 0 1px #ffffff22">')
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def flag_bytes(cc):
+    """Drapeau téléchargé pour les exports (None si indisponible)."""
+    if len(cc) != 2 or not cc.isalpha():
+        return None
+    try:
+        r = requests.get(FLAG_URL.format(cc.lower()), timeout=5)
+        return r.content if r.ok and r.content[:4] == b"\x89PNG" else None
+    except Exception:
+        return None
 
 def fmt_date(ts):
     return datetime.fromtimestamp(ts).strftime("%d/%m/%Y") if ts else "—"
 
 def table_html(rows):
-    heads = ["Entité / cible*", "Catégorie", "Description", "Pays", "Mesure", "Date", "Autorité / source"]
+    heads = ["Entité / cible*", "Catégorie", "Description", "Pays", "Mesure", "Montant", "Date", "Autorité / source"]
     th = "".join(f"<th>{h}</th>" for h in heads)
     trs = []
     for r in rows:
@@ -307,15 +385,17 @@ def table_html(rows):
             f'<td><a href="{html.escape(r["link"])}" target="_blank">{html.escape(r["headline"])}</a></td>'
             f'<td style="white-space:nowrap">{pays}</td>'
             f'<td><span class="mz" style="color:{col};border-color:{col}">{html.escape(r["measure"])}</span></td>'
+            f'<td style="white-space:nowrap;font-family:Share Tech Mono;color:{"#f5c542" if r["amount_v"] else "#52708a"}">'
+            f'{html.escape(r["amount"])}</td>'
             f'<td class="meta" style="white-space:nowrap">{fmt_date(r["ts"])}</td>'
             f'<td>{main}{sub}</td></tr>')
     if not trs:
-        trs = ['<tr><td colspan="7" class="meta">Aucun élément.</td></tr>']
+        trs = ['<tr><td colspan="8" class="meta">Aucun élément.</td></tr>']
     return f'<div class="wwrap"><table class="wtable"><thead><tr>{th}</tr></thead><tbody>{"".join(trs)}</tbody></table></div>'
 
 # ---------- Exports (image, PDF, Excel) ----------
-EXPORT_COLS = [("Entité / cible", .15), ("Catégorie", .12), ("Description", .33), ("Pays", .12),
-               ("Mesure", .11), ("Date", .07), ("Autorité", .10)]
+EXPORT_COLS = [("Entité / cible", .14), ("Catégorie", .11), ("Description", .30), ("Pays", .11),
+               ("Mesure", .10), ("Montant", .08), ("Date", .07), ("Autorité", .09)]
 GOLD = "#C9A227"
 FOOTER = "CWP – Compliance Watch Platform · informations issues de la presse : à vérifier auprès des sources officielles (OFAC, UE, ONU, DG Trésor…)"
 
@@ -324,13 +404,18 @@ def _plain(s):
 
 def _cells(r):
     return [r["entity"], r["theme"], r["headline"],
-            f'{r["cc"]} · {r["country"]}' if r["cc"] else "—",
-            r["measure"], fmt_date(r["ts"]),
+            r["country"] if r["cc"] else "—",
+            r["measure"], r["amount"], fmt_date(r["ts"]),
             " · ".join(x for x in [r["auth"], r["source"]] if x) or "—"]
 
 def _font(size, bold=False):
-    names = (["DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"] if bold
-             else ["DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"])
+    try:
+        import reportlab
+        rl = os.path.join(os.path.dirname(reportlab.__file__), "fonts")
+    except Exception:
+        rl = ""
+    names = ([os.path.join(rl, "VeraBd.ttf"), "DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"] if bold
+             else [os.path.join(rl, "Vera.ttf"), "DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"])
     from PIL import ImageFont
     for n in names:
         try: return ImageFont.truetype(n, size)
@@ -367,7 +452,7 @@ def make_png(rows, label, period_txt):
         xs.append((x, int(tw * fr))); x += int(tw * fr)
     prepared = []
     for r in rows:
-        wrapped = [_wrap(tmp, _plain(c), f_bold if j in (0, 4) else f_cell, w - 2 * pad, 4 if j == 2 else 3)
+        wrapped = [_wrap(tmp, _plain(c), f_bold if j in (0, 4, 5) else f_cell, w - 2 * pad, 4 if j == 2 else 3)
                    for j, (c, (_, w)) in enumerate(zip(_cells(r), xs))]
         prepared.append((r, wrapped, max(len(l) for l in wrapped) * lh + 2 * pad))
     top, head_h = M + 150, 50
@@ -387,8 +472,18 @@ def make_png(rows, label, period_txt):
             font, color = f_cell, "#1f2937"
             if j == 0: font, color = f_bold, "#0f3d66"
             if j == 4: font, color = f_bold, EXPORT_COLOR.get(r["mkey"], "#6b7c8c")
+            if j == 5: font, color = (f_bold, "#1f2937") if r["amount_v"] else (f_cell, "#9a9a9a")
+            dx = 0
+            if j == 3 and r["cc"]:
+                fb = flag_bytes(r["cc"])
+                if fb:
+                    try:
+                        fl = Image.open(io.BytesIO(fb)).convert("RGB").resize((30, 20))
+                        img.paste(fl, (x0 + pad, y + pad + 4)); dx = 38
+                    except Exception:
+                        pass
             for k, line in enumerate(lines):
-                d.text((x0 + pad, y + pad + k * lh), line, font=font, fill=color)
+                d.text((x0 + pad + (dx if k == 0 else 0), y + pad + k * lh), line, font=font, fill=color)
         y += h
         d.line([M, y, W - M, y], fill="#e6e2d6", width=1)
     d.text((M, y + 30), _plain(f"{FOOTER} · généré le {datetime.now():%d/%m/%Y %H:%M}"), font=f_foot, fill="#8a8a8a")
@@ -415,6 +510,19 @@ def make_pdf(rows, label, period_txt):
     s_h = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=7.5, textColor=colors.HexColor("#2b2b2b"), leading=10)
     s_c = ParagraphStyle("c", fontName="Helvetica", fontSize=8, leading=10, textColor=colors.HexColor("#1f2937"))
     s_b = ParagraphStyle("b", parent=s_c, fontName="Helvetica-Bold", textColor=colors.HexColor("#0f3d66"))
+    from reportlab.platypus import Image as RLImage
+
+    def pays_cell(r, label):
+        fb = flag_bytes(r["cc"]) if r["cc"] else None
+        if not fb:
+            return Paragraph(label, s_c)
+        t = Table([[RLImage(io.BytesIO(fb), width=6 * mm, height=4 * mm), Paragraph(label, s_c)]],
+                  colWidths=[7.5 * mm, None])
+        t.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                               ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                               ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        return t
+
     data = [[Paragraph(txt(n.upper()), s_h) for n, _ in EXPORT_COLS]]
     for r in rows:
         c = _cells(r)
@@ -422,9 +530,10 @@ def make_pdf(rows, label, period_txt):
         data.append([
             Paragraph(txt(c[0]), s_b), Paragraph(txt(c[1]), s_c),
             Paragraph(f'<link href="{link}" color="#1a4e8a">{txt(c[2])}</link>', s_c),
-            Paragraph(txt(c[3]), s_c),
+            pays_cell(r, txt(c[3])),
             Paragraph(f'<font color="{EXPORT_COLOR.get(r["mkey"], "#6b7c8c")}"><b>{txt(c[4])}</b></font>', s_c),
-            Paragraph(txt(c[5]), s_c), Paragraph(txt(c[6]), s_c)])
+            Paragraph(f"<b>{txt(c[5])}</b>" if r["amount_v"] else txt(c[5]), s_c),
+            Paragraph(txt(c[6]), s_c), Paragraph(txt(c[7]), s_c)])
     table = Table(data, colWidths=[doc.width * fr for _, fr in EXPORT_COLS], repeatRows=1)
     table.setStyle(TableStyle([
         ("LINEBELOW", (0, 0), (-1, 0), 1.2, gold),
