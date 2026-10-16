@@ -457,9 +457,10 @@ def table_html(rows):
     return f'<div class="wwrap"><table class="wtable"><thead><tr>{th}</tr></thead><tbody>{"".join(trs)}</tbody></table></div>'
 
 # ---------- Exports (image, PDF, Excel) ----------
-EXPORT_COLS = [("Entité / cible", .14), ("Catégorie", .11), ("Description", .30), ("Pays", .11),
-               ("Mesure", .10), ("Montant", .08), ("Date", .07), ("Autorité", .09)]
+EXPORT_COLS = [("Entité / cible", .13), ("Catégorie", .11), ("Description", .27), ("Pays", .13),
+               ("Mesure", .10), ("Montant", .08), ("Date", .08), ("Autorité", .10)]
 GOLD = "#C9A227"
+AUTHOR = "Réalisé par Mackenson CINEUS"
 FOOTER = "CWP – Compliance Watch Platform · informations issues de la presse : à vérifier auprès des sources officielles (OFAC, UE, ONU, DG Trésor…)"
 
 def _plain(s):
@@ -518,7 +519,15 @@ def _font(size, bold=False):
 
 def _wrap(d, text, font, width, max_lines):
     lines, cur = [], ""
-    for w in text.split():
+    words = []
+    for w in text.split():  # mot plus large que la colonne : coupé en morceaux
+        while d.textlength(w, font=font) > width and len(w) > 1:
+            k = len(w)
+            while k > 1 and d.textlength(w[:k], font=font) > width:
+                k -= 1
+            words.append(w[:k]); w = w[k:]
+        words.append(w)
+    for w in words:
         t = f"{cur} {w}".strip()
         if not cur or d.textlength(t, font=font) <= width:
             cur = t
@@ -536,6 +545,7 @@ def _wrap(d, text, font, width, max_lines):
 def make_png(rows, label, period_txt):
     from PIL import Image, ImageDraw
     W, M, pad, lh = 1800, 48, 12, 26
+    FLAG_W = 40
     T = _plain if _font(18).has_accents else (lambda x: _ascii(_plain(x)))
     tw = W - 2 * M
     f_title, f_sub, f_head = _font(44, True), _font(22), _font(17, True)
@@ -546,11 +556,12 @@ def make_png(rows, label, period_txt):
         xs.append((x, int(tw * fr))); x += int(tw * fr)
     prepared = []
     for r in rows:
-        wrapped = [_wrap(tmp, T(c), f_bold if j in (0, 4, 5) else f_cell, w - 2 * pad, 4 if j == 2 else 3)
+        wrapped = [_wrap(tmp, T(c), f_bold if j in (0, 4, 5) else f_cell,
+                         w - 2 * pad - (FLAG_W if j == 3 and r["cc"] else 0), 4 if j == 2 else 3)
                    for j, (c, (_, w)) in enumerate(zip(_cells(r), xs))]
         prepared.append((r, wrapped, max(len(l) for l in wrapped) * lh + 2 * pad))
     top, head_h = M + 150, 50
-    H = top + head_h + sum(p[2] for p in prepared) + 90
+    H = top + head_h + sum(p[2] for p in prepared) + 120
     img = Image.new("RGB", (W, H), "white"); d = ImageDraw.Draw(img)
     d.rounded_rectangle([M, M, W - M, M + 110], radius=18, fill="#fbf7ea", outline="#e8dcb0", width=2)
     d.text((M + 30, M + 16), T("Weekly Watch — Sécurité financière"), font=f_title, fill=GOLD)
@@ -577,10 +588,11 @@ def make_png(rows, label, period_txt):
                     except Exception:
                         pass
             for k, line in enumerate(lines):
-                d.text((x0 + pad + (dx if k == 0 else 0), y + pad + k * lh), line, font=font, fill=color)
+                d.text((x0 + pad + (FLAG_W if j == 3 and r["cc"] else 0), y + pad + k * lh), line, font=font, fill=color)
         y += h
         d.line([M, y, W - M, y], fill="#e6e2d6", width=1)
     d.text((M, y + 30), T(f"{FOOTER} · généré le {datetime.now():%d/%m/%Y %H:%M}"), font=f_foot, fill="#8a8a8a")
+    d.text((M, y + 56), T(AUTHOR), font=_font(15, True), fill="#8a8a8a")
     buf = io.BytesIO(); img.save(buf, "PNG")
     return buf.getvalue()
 
@@ -639,7 +651,15 @@ def make_pdf(rows, label, period_txt):
     story = [Paragraph(txt("Weekly Watch — Sécurité financière"), s_t),
              Paragraph(txt(f"{label} · {period_txt} · {len(rows)} éléments"), s_s), Spacer(1, 5 * mm), table,
              Spacer(1, 4 * mm), Paragraph(txt(f"{FOOTER} · généré le {datetime.now():%d/%m/%Y %H:%M}"), s_s)]
-    doc.build(story)
+    def _footer(canvas, _doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica-Oblique", 7.5)
+        canvas.setFillColor(colors.HexColor("#8a8a8a"))
+        canvas.drawString(12 * mm, 7 * mm, AUTHOR.encode("cp1252", "ignore").decode("cp1252"))
+        canvas.drawRightString(landscape(A4)[0] - 12 * mm, 7 * mm, f"Page {_doc.page}")
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
     return buf.getvalue()
 
 def to_excel_watch(rows):
