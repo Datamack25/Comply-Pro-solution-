@@ -1,155 +1,35 @@
 """
 tab_regulatory_flash.py — Onglet « Regulatory Flash » de CWP.
 
-Fiche de synthèse d'un texte réglementaire :
-en-tête (texte / référence), pays-source, calendrier, cible prioritaire,
-3 points clés, checklist d'impacts systèmes & process, « L'essentiel » en 2 paragraphes.
-Aperçu en direct + export PDF (A4) et PNG (hauteur ajustée), import/export JSON.
+Veille réglementaire automatique : la page interroge les régulateurs et institutions de référence
+(ACPR, TRACFIN, AMF, DG Trésor, Journal officiel, AFA, AMLA, EBA, ESMA, BCE, UE, GAFI, OFAC, FinCEN,
+Comité de Bâle — voir regwatch.SOURCES), liste leurs dernières publications et transforme chacune
+en fiche « Regulatory Flash » : référence, calendrier, cible, 3 points clés, checklist d'impacts
+(KYC, filtrage, gouvernance) et « L'essentiel ».
+Exports : PDF A4 et image PNG par fiche, bulletin PDF multi-fiches.
 
-Intégration :  from tab_regulatory_flash import render_regulatory_flash
-               with tab_flash: render_regulatory_flash()
+Synthèse : par IA si une clé est présente dans .streamlit/secrets.toml
+(ANTHROPIC_API_KEY, MISTRAL_API_KEY ou OLLAMA_URL), sinon extraction automatique.
+
+Intégration :  from tab_regulatory_flash import render_regulatory_flash ; render_regulatory_flash()
 """
 from __future__ import annotations
 
 import json
 from datetime import datetime
 
+import pandas as pd
 import streamlit as st
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, PageBreak, Paragraph, Spacer, Table, TableStyle
 
 import cwp_export_utils as X
+import regwatch as rw
 
-# --------------------------------------------------------------------------- #
-# Modèles pré-remplis (à vérifier / compléter sur EUR-Lex avant diffusion)
-# --------------------------------------------------------------------------- #
 IMPACTS = ["Fort", "Modéré", "Faible"]
-DOMAINES = ["KYC / KYB & UBO", "Filtrage & transactions", "Gouvernance & reporting"]
-
-BLANK = {
-    "titre": "", "reference": "", "pays_source": "", "adoption": "", "application": "",
-    "cible": "", "points": ["", "", ""],
-    "checklist": [{"domaine": d, "texte": "", "impact": "Modéré", "fait": False} for d in DOMAINES],
-    "contexte": "", "risque": "", "sources": "",
-}
-
-PRESETS = {
-    "Vierge": BLANK,
-    "AMLR — Règlement (UE) 2024/1624": {
-        "titre": "AMLR — Règlement unique LCB-FT",
-        "reference": "Règlement (UE) 2024/1624 du 31 mai 2024 relatif à la prévention de l'utilisation "
-                     "du système financier aux fins du blanchiment de capitaux ou du financement du terrorisme",
-        "pays_source": "Union européenne (paquet AML : AMLR, AMLD6, AMLA)",
-        "adoption": "Mai 2024", "application": "Juillet 2027",
-        "cible": "Banques, PSP / EME, PSAN (CASP), assurances, SGP, professions non financières",
-        "points": [
-            "Remplacer la mosaïque des transpositions nationales par un « single rulebook » "
-            "directement applicable dans toute l'UE.",
-            "Harmoniser la vigilance : bénéficiaire effectif (seuil de 25 % + contrôle par d'autres moyens), "
-            "données KYC minimales et fréquence de revue fondée sur le risque.",
-            "Plafond européen des paiements en espèces à 10 000 € ; régime de sanctions renforcé "
-            "(AMLD6) sous la supervision coordonnée de l'AMLA.",
-        ],
-        "checklist": [
-            {"domaine": "KYC / KYB & UBO", "impact": "Fort", "fait": False,
-             "texte": "Revoir la collecte des données d'identification, la recherche des BE "
-                      "(propriété et contrôle) et les cycles de mise à jour des dossiers selon le risque."},
-            {"domaine": "Filtrage & transactions", "impact": "Modéré", "fait": False,
-             "texte": "Intégrer le risque de contournement des sanctions financières ciblées "
-                      "dans la classification des risques et les scénarios de surveillance."},
-            {"domaine": "Gouvernance & reporting", "impact": "Fort", "fait": False,
-             "texte": "Désigner un dirigeant responsable LCB-FT, actualiser la classification des risques "
-                      "et adapter les déclarations de soupçon (TRACFIN) aux formats harmonisés."},
-        ],
-        "contexte": "Pièce centrale du paquet AML de 2024, l'AMLR transfère au niveau européen l'essentiel "
-                    "des obligations jusqu'ici portées par les directives. Il fixe un socle commun pour "
-                    "l'évaluation des risques, la vigilance à l'égard de la clientèle et la transparence "
-                    "des bénéficiaires effectifs. Le contrôle interne doit être reconfiguré sur trois niveaux : "
-                    "procédures opérationnelles (niveau 1), contrôle permanent conformité (niveau 2) "
-                    "et audit de la conformité au nouveau référentiel (niveau 3).",
-        "risque": "La mise en œuvre touche directement les outils : refonte des formulaires d'entrée en "
-                  "relation, paramétrage des fréquences de revue, enrichissement du scoring client et "
-                  "traçabilité des contrôles BE. Une calibration trop stricte gonfle les faux positifs, "
-                  "une calibration trop lâche expose à des sanctions pécuniaires et administratives "
-                  "prononcées par le superviseur national (ACPR / AMF) et à un risque réputationnel fort.",
-        "sources": "EUR-Lex — Règlement (UE) 2024/1624 ; Directive (UE) 2024/1640 (AMLD6) ; "
-                   "Règlement (UE) 2024/1620 (AMLA)",
-    },
-    "TFR — Règlement (UE) 2023/1113 (travel rule)": {
-        "titre": "TFR — Travel rule fonds & crypto-actifs",
-        "reference": "Règlement (UE) 2023/1113 du 31 mai 2023 sur les informations accompagnant "
-                     "les transferts de fonds et de certains crypto-actifs",
-        "pays_source": "Union européenne",
-        "adoption": "Mai 2023", "application": "Décembre 2024",
-        "cible": "PSP, EME, PSAN / CASP, intermédiaires de paiement",
-        "points": [
-            "Assurer la traçabilité de bout en bout des transferts, y compris de crypto-actifs, "
-            "en transmettant l'identité du donneur d'ordre et du bénéficiaire.",
-            "Transferts crypto : informations exigées sans seuil de montant ; contrôles renforcés "
-            "pour les échanges avec des adresses auto-hébergées.",
-            "Transfert incomplet : rejet ou suspension, demande d'informations et signalement "
-            "des prestataires défaillants de façon répétée.",
-        ],
-        "checklist": [
-            {"domaine": "KYC / KYB & UBO", "impact": "Modéré", "fait": False,
-             "texte": "Vérifier la cohérence nom / compte / adresse wallet et documenter la propriété "
-                      "des adresses auto-hébergées au-delà des seuils réglementaires."},
-            {"domaine": "Filtrage & transactions", "impact": "Fort", "fait": False,
-             "texte": "Contrôler la complétude des champs donneur d'ordre / bénéficiaire, filtrer ces "
-                      "données contre les listes de sanctions et paramétrer les règles de rejet."},
-            {"domaine": "Gouvernance & reporting", "impact": "Modéré", "fait": False,
-             "texte": "Tenir un registre des contreparties défaillantes, formaliser la procédure "
-                      "d'escalade et déclarer à TRACFIN en cas de soupçon."},
-        ],
-        "contexte": "Refonte du règlement 2015/847, le TFR étend la « travel rule » du GAFI aux crypto-actifs. "
-                    "Chaque prestataire de la chaîne doit transmettre, recevoir et contrôler les informations "
-                    "relatives aux parties. Le niveau 1 vérifie à l'exécution, le niveau 2 pilote les "
-                    "indicateurs de complétude et de rejet, le niveau 3 teste l'efficacité du dispositif.",
-        "risque": "L'implémentation repose sur des protocoles d'échange entre prestataires et sur des "
-                  "règles de contrôle automatiques ; les données manquantes ou mal formatées génèrent "
-                  "faux positifs et blocages. Un manquement expose à des sanctions de l'ACPR / AMF et peut "
-                  "faire de l'établissement le maillon faible d'un schéma de contournement des sanctions.",
-        "sources": "EUR-Lex — Règlement (UE) 2023/1113 ; Recommandation 16 du GAFI",
-    },
-}
-
-# --------------------------------------------------------------------------- #
-# État Streamlit
-# --------------------------------------------------------------------------- #
-P = "rf_"  # préfixe des clés de session
-
-
-def _load(data: dict) -> None:
-    d = {**BLANK, **data}
-    for k in ("titre", "reference", "pays_source", "adoption", "application", "cible",
-              "contexte", "risque", "sources"):
-        st.session_state[P + k] = d.get(k, "")
-    pts = (list(d.get("points", [])) + ["", "", ""])[:3]
-    for i, v in enumerate(pts):
-        st.session_state[f"{P}pt{i}"] = v
-    cl = (list(d.get("checklist", [])) + BLANK["checklist"])[:3]
-    for i, item in enumerate(cl):
-        st.session_state[f"{P}cl{i}_domaine"] = item.get("domaine", DOMAINES[i])
-        st.session_state[f"{P}cl{i}_texte"] = item.get("texte", "")
-        st.session_state[f"{P}cl{i}_impact"] = item.get("impact", "Modéré") if item.get("impact") in IMPACTS else "Modéré"
-        st.session_state[f"{P}cl{i}_fait"] = bool(item.get("fait", False))
-
-
-def _collect() -> dict:
-    g = st.session_state.get
-    return {
-        "titre": g(P + "titre", ""), "reference": g(P + "reference", ""),
-        "pays_source": g(P + "pays_source", ""), "adoption": g(P + "adoption", ""),
-        "application": g(P + "application", ""), "cible": g(P + "cible", ""),
-        "points": [g(f"{P}pt{i}", "") for i in range(3)],
-        "checklist": [{"domaine": g(f"{P}cl{i}_domaine", DOMAINES[i]),
-                       "texte": g(f"{P}cl{i}_texte", ""),
-                       "impact": g(f"{P}cl{i}_impact", "Modéré"),
-                       "fait": g(f"{P}cl{i}_fait", False)} for i in range(3)],
-        "contexte": g(P + "contexte", ""), "risque": g(P + "risque", ""),
-        "sources": g(P + "sources", ""),
-    }
-
+DOMAINES = list(rw.DOMAINS)
+PERIODES = {"7 jours": 7, "30 jours": 30, "90 jours": 90}
+BULLETIN_MAX = 10
 
 # --------------------------------------------------------------------------- #
 # Rendu PDF (ReportLab)
@@ -160,7 +40,7 @@ _IMPACT_HEX = {"Fort": X.HEX["red"], "Modéré": X.HEX["orange"], "Faible": X.HE
 
 def _flowables(d: dict, width: float) -> list:
     s = X.styles()
-    out = [X.header_card("Regulatory Flash", d["titre"] or "Titre du texte",
+    out = [X.header_card("Regulatory Flash" + (f" · {d['type']}" if d.get("type") else ""), d["titre"] or "Titre du texte",
                          d["reference"] or "Référence complète", width), Spacer(1, 12)]
 
     # Bandeau méta : pays / calendrier / cible
@@ -241,6 +121,17 @@ def flash_png(d: dict) -> bytes:
     return X.pdf_to_png(X.build_fitted_pdf(lambda: _flowables(d, w), title="Regulatory Flash"))
 
 
+def bulletin_pdf(flashes: list[dict], titre: str) -> bytes:
+    """Un PDF regroupant plusieurs flashs (une fiche par page)."""
+    w = X.CONTENT_W
+    story = []
+    for i, d in enumerate(flashes):
+        if i:
+            story.append(PageBreak())
+        story += _flowables(d, w)
+    return X.build_pdf(story, title=titre)
+
+
 @st.cache_data(show_spinner=False)
 def _cached_exports(payload: str) -> tuple[bytes, bytes]:
     d = json.loads(payload)
@@ -278,7 +169,7 @@ def _preview_html(d: dict) -> str:
 <div style="font-family:Inter,system-ui,sans-serif;color:{c['ink']};font-size:14px;line-height:1.5;
             background:#fff;padding:18px;border-radius:10px;border:1px solid {c['line']}">
   <div style="background:{c['cream']};border:1px solid {c['gold_light']};border-radius:12px;padding:14px 18px">
-    <div style="color:{c['gold']};font-weight:700;font-size:11px;letter-spacing:.08em">REGULATORY FLASH</div>
+    <div style="color:{c['gold']};font-weight:700;font-size:11px;letter-spacing:.08em">REGULATORY FLASH{(' · ' + _h(d['type']).upper()) if d.get('type') else ''}</div>
     <div style="color:{c['gold']};font-size:26px;line-height:1.2">{_h(d['titre']) or 'Titre du texte'}</div>
     <div style="color:{c['grey']};font-size:13.5px;margin-top:4px">{_h(d['reference']) or 'Référence complète'}</div>
   </div>
@@ -301,71 +192,162 @@ def _preview_html(d: dict) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Collecte & génération (avec cache)
+# --------------------------------------------------------------------------- #
+def _secrets() -> dict:
+    try:
+        return dict(st.secrets)
+    except Exception:  # noqa: BLE001  (pas de secrets.toml)
+        return {}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch(days: int, sources: tuple) -> tuple[list[dict], list[dict]]:
+    return rw.fetch_publications(days, list(sources) or None)
+
+
+@st.cache_data(ttl=86_400, show_spinner=False, max_entries=300)
+def _flash(item_json: str, provider: str | None) -> dict:
+    item = json.loads(item_json)
+    return rw.build_flash(item, _secrets() if provider else None, use_ai=bool(provider))
+
+
+def _get_flash(item: dict, provider: str | None) -> dict:
+    d = dict(_flash(json.dumps(item, ensure_ascii=False, sort_keys=True), provider))
+    edits = st.session_state.get("rf_edits", {}).get(item["link"])
+    if edits:
+        d.update(edits)
+    return d
+
+
+def _label(it: dict) -> str:
+    date = datetime.fromtimestamp(it["ts"]).strftime("%d/%m") if it["ts"] else "--/--"
+    return f"{date} · {it['source']} · {it['kind']} — {X.esc(it['title'])[:110]}"
+
+
+# --------------------------------------------------------------------------- #
+# Retouche manuelle (facultative)
+# --------------------------------------------------------------------------- #
+def _edit_form(link: str, d: dict) -> None:
+    with st.expander("✏️ Retoucher la fiche avant export", expanded=False):
+        with st.form(f"rf_form_{abs(hash(link))}"):
+            e = {}
+            e["titre"] = st.text_input("Nom du texte", d["titre"])
+            e["reference"] = st.text_area("Référence complète", d["reference"], height=70)
+            a, b, c = st.columns(3)
+            e["pays_source"] = a.text_input("Pays / source", d["pays_source"])
+            e["adoption"] = b.text_input("Adoption / publication", d["adoption"])
+            e["application"] = c.text_input("Entrée en application", d["application"])
+            e["cible"] = st.text_input("Cible prioritaire", d["cible"])
+            labels = ["Objectif central", "Obligation technique clé", "Sanction ou contrainte majeure"]
+            e["points"] = [st.text_area(f"{i + 1}. {lab}", d["points"][i], height=70) for i, lab in enumerate(labels)]
+            cl = []
+            for i, it in enumerate(d["checklist"]):
+                x, y = st.columns([4, 1])
+                txt = x.text_area(it["domaine"], it["texte"], height=70)
+                imp = y.selectbox("Impact", IMPACTS, IMPACTS.index(it["impact"]) if it["impact"] in IMPACTS else 1,
+                                  key=f"rf_imp_{i}_{abs(hash(link))}")
+                done = y.checkbox("Fait", it.get("fait", False), key=f"rf_done_{i}_{abs(hash(link))}")
+                cl.append(dict(domaine=it["domaine"], texte=txt, impact=imp, fait=done))
+            e["checklist"] = cl
+            e["contexte"] = st.text_area("Contexte & obligations", d["contexte"], height=130)
+            e["risque"] = st.text_area("Traçabilité, sanctions & risque", d["risque"], height=130)
+            s1, s2 = st.columns(2)
+            if s1.form_submit_button("💾 Appliquer les retouches", use_container_width=True):
+                st.session_state.setdefault("rf_edits", {})[link] = e
+                st.rerun()
+            if s2.form_submit_button("↩️ Revenir à la fiche générée", use_container_width=True):
+                st.session_state.setdefault("rf_edits", {}).pop(link, None)
+                st.rerun()
+
+
+# --------------------------------------------------------------------------- #
 # Onglet
 # --------------------------------------------------------------------------- #
 def render_regulatory_flash() -> None:
-    if P + "titre" not in st.session_state:
-        _load(PRESETS["AMLR — Règlement (UE) 2024/1624"])
+    st.markdown("# 📌 Regulatory Flash")
+    st.caption("Veille réglementaire automatique sur les sites des régulateurs (ACPR, TRACFIN, AMF, AMLA, EBA, "
+               f"GAFI, OFAC…) : chaque publication devient une fiche Regulatory Flash. {X.SIGNATURE}.")
 
-    st.markdown("### 📌 Regulatory Flash")
-    st.caption("Fiche de synthèse d'un texte réglementaire — à remplir, prévisualiser et exporter en PDF / image.")
+    provider = rw.llm_provider(_secrets())
 
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        preset = st.selectbox("Partir d'un modèle", list(PRESETS), key=P + "preset")
-        if st.button("Charger ce modèle", key=P + "load_preset"):
-            _load(PRESETS[preset])
-            st.rerun()
-    with c2:
-        up = st.file_uploader("Importer un flash (.json)", type=["json"], key=P + "upload")
-        if up is not None and st.session_state.get(P + "last_upload") != up.file_id:
-            try:
-                _load(json.load(up))
-                st.session_state[P + "last_upload"] = up.file_id
-                st.rerun()
-            except Exception as e:  # noqa: BLE001
-                st.error(f"Fichier JSON illisible : {e}")
+    # ---- Filtres
+    c1, c2, c3, c4 = st.columns([1, 2.4, 2, 1.2])
+    periode = c1.selectbox("Période", list(PERIODES), index=1, key="rf_periode")
+    sources = c2.multiselect("Régulateurs", list(rw.SOURCES), key="rf_sources", placeholder="Tous les régulateurs")
+    types = c3.multiselect("Type de publication", [k for k, _ in rw.KINDS] + ["Communiqué / actualité"],
+                           key="rf_types", placeholder="Tous les types")
+    with c4:
+        st.write("")
+        only_rel = st.toggle("Conformité uniquement", True, key="rf_rel",
+                             help="Masque les publications sans lien avec la conformité, la LCB-FT ou les sanctions.")
+    b1, _ = st.columns([1, 3])
+    if b1.button("🔄 Actualiser la veille", use_container_width=True, key="rf_refresh"):
+        _fetch.clear()
+        st.rerun()
 
-    form_col, prev_col = st.columns([1, 1.15], gap="large")
+    with st.spinner("Interrogation des régulateurs…"):
+        items, status = _fetch(PERIODES[periode], tuple(sorted(sources)))
+    if types:
+        items = [i for i in items if i["kind"] in types]
+    if only_rel:
+        items = [i for i in items if i["relevant"]]
 
-    with form_col:
-        with st.expander("① En-tête & calendrier", expanded=True):
-            st.text_input("Nom du texte", key=P + "titre")
-            st.text_area("Référence complète", key=P + "reference", height=70)
-            st.text_input("Pays / source", key=P + "pays_source",
-                          placeholder="Union européenne / US OFAC / France…")
-            a, b = st.columns(2)
-            a.text_input("Adoption (mois année)", key=P + "adoption", placeholder="Mai 2024")
-            b.text_input("Entrée en application", key=P + "application", placeholder="Juillet 2027")
-            st.text_input("Cible prioritaire", key=P + "cible", placeholder="Banques, PSAN, SGP, assurances…")
-        with st.expander("② En 3 points", expanded=True):
-            labels = ["Objectif central du texte", "Obligation technique clé", "Sanction ou contrainte majeure"]
-            for i, lab in enumerate(labels):
-                st.text_area(f"{i + 1}. {lab}", key=f"{P}pt{i}", height=75)
-        with st.expander("③ Impacts systèmes & process", expanded=False):
-            for i in range(3):
-                if i:
-                    st.divider()
-                x, y = st.columns([3, 1])
-                x.text_input("Domaine", key=f"{P}cl{i}_domaine", label_visibility="collapsed")
-                y.selectbox("Impact", IMPACTS, key=f"{P}cl{i}_impact", label_visibility="collapsed")
-                st.text_area("Action", key=f"{P}cl{i}_texte", height=70, label_visibility="collapsed")
-                st.checkbox("Action réalisée", key=f"{P}cl{i}_fait")
-        with st.expander("④ L'essentiel (lecture 2 min)", expanded=False):
-            st.text_area("Contexte & obligations légales-techniques (niveaux 1, 2, 3)",
-                         key=P + "contexte", height=150)
-            st.text_area("Traçabilité, sanctions & risque de non-conformité", key=P + "risque", height=150)
-            st.text_input("Sources (optionnel)", key=P + "sources")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Publications", len(items))
+    m2.metric("Sources actives", f"{sum(1 for s in status if s['Publications'])}/{len(status)}")
+    m3.metric("Synthèse", f"IA · {provider}" if provider else "Extraction auto")
+    with st.expander("📡 État des sources", expanded=False):
+        st.dataframe(pd.DataFrame(status), hide_index=True, use_container_width=True)
+        if not provider:
+            st.caption("Pour des fiches rédigées par IA, ajoutez dans les secrets Streamlit "
+                       "`ANTHROPIC_API_KEY`, `MISTRAL_API_KEY` ou `OLLAMA_URL` (modèle optionnel : `CWP_LLM_MODEL`).")
 
-    d = _collect()
-    with prev_col:
+    if not items:
+        st.warning("Aucune publication trouvée sur la période avec ces filtres. Élargissez la période ou "
+                   "consultez « État des sources » pour vérifier que les flux répondent.")
+        return
+
+    # ---- Liste + fiche
+    by_link = {i["link"]: i for i in items}
+    left, right = st.columns([1, 1.55], gap="large")
+    with left:
+        st.markdown(f"**Publications détectées** · {periode}")
+        with st.container(height=760):
+            link = st.radio("Publication", list(by_link), format_func=lambda l: _label(by_link[l]),
+                            key="rf_sel", label_visibility="collapsed")
+    item = by_link.get(link) or items[0]
+
+    with right:
+        with st.spinner("Rédaction de la fiche…"):
+            d = _get_flash(item, provider)
+        retouche = " · retouchée" if item["link"] in st.session_state.get("rf_edits", {}) else ""
+        st.caption(f"{d.get('mode', '')}{retouche} · [Lire la publication d'origine]({item['link']})")
         st.markdown(_preview_html(d), unsafe_allow_html=True)
+        pdf_b, png_b = _cached_exports(json.dumps(d, ensure_ascii=False, sort_keys=True))
+        name = f"regulatory_flash_{X.slug(item['source'])}_{X.slug(d['titre'], 30)}_{datetime.now():%Y%m%d}"
+        e1, e2 = st.columns(2)
+        e1.download_button("⬇️ PDF (A4)", pdf_b, f"{name}.pdf", "application/pdf", use_container_width=True)
+        e2.download_button("🖼️ Image PNG", png_b, f"{name}.png", "image/png", use_container_width=True)
+        _edit_form(item["link"], d)
 
+    # ---- Bulletin multi-fiches
     st.divider()
-    pdf_b, png_b = _cached_exports(json.dumps(d, ensure_ascii=False, sort_keys=True))
-    name = f"regulatory_flash_{X.slug(d['titre'])}_{datetime.now():%Y%m%d}"
-    e1, e2, e3 = st.columns(3)
-    e1.download_button("⬇️ PDF (A4)", pdf_b, f"{name}.pdf", "application/pdf", use_container_width=True)
-    e2.download_button("🖼️ Image PNG", png_b, f"{name}.png", "image/png", use_container_width=True)
-    e3.download_button("💾 Sauvegarder (.json)", json.dumps(d, ensure_ascii=False, indent=2).encode("utf-8"),
-                       f"{name}.json", "application/json", use_container_width=True)
+    st.markdown("### 📦 Bulletin réglementaire")
+    st.caption(f"Regroupe jusqu'à {BULLETIN_MAX} fiches dans un seul PDF (une fiche par page).")
+    default = [i["link"] for i in items if i["kind"] != "Communiqué / actualité"][:5] or list(by_link)[:5]
+    chosen = st.multiselect("Publications à inclure", list(by_link), default=default,
+                            format_func=lambda l: _label(by_link[l]), max_selections=BULLETIN_MAX,
+                            key="rf_bulletin")
+    if st.button("Générer le bulletin PDF", disabled=not chosen, key="rf_gen_bulletin"):
+        prog = st.progress(0.0, "Rédaction des fiches…")
+        flashes = []
+        for k, l in enumerate(chosen):
+            flashes.append(_get_flash(by_link[l], provider))
+            prog.progress((k + 1) / len(chosen), f"Fiche {k + 1}/{len(chosen)}")
+        st.session_state["rf_bulletin_pdf"] = bulletin_pdf(
+            flashes, f"Bulletin réglementaire CWP — {datetime.now():%d/%m/%Y}")
+        prog.empty()
+    if st.session_state.get("rf_bulletin_pdf"):
+        st.download_button("⬇️ Télécharger le bulletin", st.session_state["rf_bulletin_pdf"],
+                           f"cwp_bulletin_reglementaire_{datetime.now():%Y%m%d}.pdf", "application/pdf")

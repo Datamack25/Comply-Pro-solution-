@@ -146,10 +146,38 @@ def section_title(text: str, width: float) -> Table:
     return t
 
 
-def footer_line(context: str) -> Paragraph:
+# --------------------------------------------------------------------------- #
+# Signature de la plateforme (apposée sur chaque fichier généré)
+# --------------------------------------------------------------------------- #
+PLATFORM = "CWP – Compliance Watch Platform"
+AUTHOR = "Mackenson CINEUS"
+CREDIT = f"Plateforme conçue et développée par {AUTHOR}"
+SIGNATURE = f"{PLATFORM} · {CREDIT}"
+
+
+def signature_meta() -> dict:
+    """Bloc de signature à insérer dans les exports JSON."""
+    return {"plateforme": PLATFORM, "conception": CREDIT,
+            "genere_le": datetime.now().strftime("%d/%m/%Y %H:%M")}
+
+
+def footer_line(context: str, width: float | None = None) -> Table:
+    """Pied de page : signature CWP / Mackenson CINEUS + contexte + date."""
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
-    return Paragraph(
-        f"CWP · Compliance Watch Platform · {esc(context)} · généré le {now}", styles()["footer"])
+    st = styles()
+    sig = Paragraph(f'<font name="{FONT_B}" color="{HEX["navy"]}">{esc(PLATFORM)}</font>'
+                    f'<font color="{HEX["gold"]}">  ·  </font>'
+                    f'<font color="{HEX["navy"]}">{esc(CREDIT)}</font>',
+                    S("sig", 7.8, FONT, NAVY, leading=10))
+    ctx = Paragraph(f"{esc(context)} · généré le {now}", st["footer"])
+    t = Table([[sig], [ctx]], colWidths=[width or CONTENT_W])
+    t.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, 0), 0.8, GOLD_LIGHT),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, 0), 6), ("TOPPADDING", (0, 1), (-1, 1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return t
 
 
 # --------------------------------------------------------------------------- #
@@ -164,14 +192,15 @@ def build_pdf(flowables, pagesize=A4, title="CWP", page_numbers=True) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=pagesize, leftMargin=MARGIN, rightMargin=MARGIN,
                             topMargin=MARGIN, bottomMargin=MARGIN, title=title,
-                            author="CWP – Compliance Watch Platform")
+                            author=AUTHOR, creator=SIGNATURE, subject=PLATFORM)
 
     def _page(canvas, d):
-        if page_numbers and d.page > 0:
+        if page_numbers and d.page > 0:  # PDF multipage : signature sur chaque page
             canvas.saveState()
             canvas.setFont(FONT, 7)
             canvas.setFillColor(GREY)
-            canvas.drawRightString(pagesize[0] - MARGIN, 8 * mm, f"{d.page}")
+            canvas.drawString(MARGIN + FRAME_PAD, 8 * mm, SIGNATURE)
+            canvas.drawRightString(pagesize[0] - MARGIN - FRAME_PAD, 8 * mm, f"{d.page}")
             canvas.restoreState()
 
     doc.build(list(flowables), onFirstPage=_page, onLaterPages=_page)

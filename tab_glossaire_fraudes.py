@@ -93,7 +93,7 @@ def _flowables(items: list[dict], width: float, subtitle: str, with_sections: bo
         out.append(_card(f, width))
     out += [Spacer(1, 6), X.footer_line(
         "Glossaire à visée pédagogique : signaux indicatifs, à adapter à l'approche par les risques "
-        "de l'établissement (GAFI, TRACFIN, ACPR)")]
+        "de l'établissement (GAFI, TRACFIN, ACPR)", width)]
     return out
 
 
@@ -148,9 +148,9 @@ def _card_html(f: dict) -> str:
 def render_glossaire_fraudes() -> None:
     items_all = _numbered()
 
-    st.markdown("### 📚 Glossaire des fraudes")
+    st.markdown("# 🕵️ Glossaire des fraudes")
     st.caption(f"{len(items_all)} typologies courantes — description, signaux dans une transaction "
-               "et moyens de lutte. Filtrez, puis exportez en PDF ou en image.")
+               f"et moyens de lutte. Filtrez, puis exportez en PDF ou en image. {X.SIGNATURE}.")
 
     a, b = st.columns([1.3, 2])
     q = a.text_input("🔎 Rechercher", placeholder="mule, RIB, crypto, TVA, sanctions…", key="gl_q")
@@ -205,7 +205,8 @@ def render_glossaire_fraudes() -> None:
                                _cached("png", (n,), f"Fiche {n:02d} · {f1['categorie']}"),
                                f"cwp_fiche_{n:02d}_{X.slug(f1['nom'])}.png", "image/png",
                                use_container_width=True)
-        st.download_button("💾 Données (.json)", json.dumps(items, ensure_ascii=False, indent=2).encode(),
+        st.download_button("💾 Données (.json)", json.dumps({"_signature": X.signature_meta(), "fiches": items},
+                                      ensure_ascii=False, indent=2).encode(),
                            f"cwp_glossaire_{stamp}.json", "application/json")
 
     # ---- Fiches (2 colonnes)
