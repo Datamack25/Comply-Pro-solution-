@@ -347,3 +347,187 @@ REGISTRE = [
          contrainte="Transposition attendue dans les législations nationales et européennes.",
          lien=FATF_RECS),
 ]
+
+
+# --------------------------------------------------------------------------- #
+# Résumés : ce que dit chaque texte (partie « L'essentiel » de la fiche)
+# --------------------------------------------------------------------------- #
+RESUMES = {
+    "amlr": "L'AMLR fixe directement, pour toutes les entités assujetties de l'UE, les règles de vigilance à "
+            "l'égard de la clientèle, de transparence des bénéficiaires effectifs et de déclaration des opérations "
+            "suspectes, jusque-là réparties entre la directive et les lois nationales. Il élargit le champ des "
+            "assujettis (prestataires sur crypto-actifs, plateformes de financement participatif, négociants en "
+            "biens de grande valeur, clubs et agents de football professionnels). Les informations à recueillir "
+            "sur les clients sont harmonisées et la mise à jour des dossiers est rythmée par le risque, au moins "
+            "une fois par an pour les clients à risque élevé et au moins tous les cinq ans pour les autres. "
+            "Le bénéficiaire effectif s'apprécie par la détention d'au moins 25 % ou par le contrôle exercé "
+            "par d'autres moyens. Le texte encadre la vigilance simplifiée et renforcée, notamment vis-à-vis des "
+            "pays tiers à haut risque, interdit les comptes anonymes et plafonne les paiements en espèces à 10 000 €.",
+    "amld6": "L'AMLD6 regroupe les règles que chaque État membre doit organiser. Elle impose des registres "
+             "centraux des bénéficiaires effectifs interconnectés au niveau européen, accessibles aux assujettis "
+             "et aux personnes justifiant d'un intérêt légitime, avec signalement des divergences. Elle prévoit "
+             "des registres de comptes bancaires interconnectés et un accès des autorités aux informations "
+             "immobilières. Elle renforce les cellules de renseignement financier comme TRACFIN (suspension "
+             "d'opérations, accès à l'information, analyses conjointes) et fixe une méthodologie commune de "
+             "supervision fondée sur les risques. Elle harmonise enfin les mesures administratives et les "
+             "sanctions applicables aux assujettis.",
+    "amlar": "Le règlement crée l'AMLA, autorité européenne de lutte contre le blanchiment installée à Francfort. "
+             "Elle supervisera directement jusqu'à 40 groupes financiers transfrontaliers à haut risque, "
+             "sélectionnés selon des critères de risque et de présence dans plusieurs États membres. Elle "
+             "coordonne les superviseurs nationaux du secteur financier et non financier, élabore les normes "
+             "techniques et orientations qui précisent l'AMLR, et soutient la coopération entre cellules de "
+             "renseignement financier. Elle dispose de pouvoirs d'enquête et de sanction envers les entités "
+             "qu'elle supervise directement.",
+    "arrete-2021": "L'arrêté précise l'organisation attendue du dispositif LCB-FT et de gel des avoirs des "
+                   "organismes financiers. Il impose une classification des risques documentée et mise à jour, "
+                   "tenant compte des travaux du GAFI, de l'OCDE et de l'UE, des procédures écrites et des outils "
+                   "de détection et d'analyse des opérations atypiques. Il encadre le recours à des prestataires "
+                   "externes et exige un contrôle interne permanent et périodique adapté à la taille et à "
+                   "l'activité. Pour le gel des avoirs, il demande un dispositif de détection des personnes "
+                   "désignées et des opérations visant à contourner les mesures. Il organise enfin la "
+                   "responsabilité de l'entreprise mère sur le dispositif de groupe.",
+    "eba-gl-2022-05": "Les orientations précisent le rôle de l'organe de direction, qui doit désigner l'un de ses "
+                      "membres comme responsable de la conformité aux obligations LCB-FT. Elles détaillent les "
+                      "missions, le positionnement hiérarchique, l'indépendance et les moyens du responsable de la "
+                      "conformité LCB-FT, ainsi que son accès à l'information. Ce dernier rend compte au moins "
+                      "une fois par an à l'organe de direction dans un rapport d'activité. Les orientations "
+                      "encadrent également l'organisation de la fonction au sein des groupes et l'externalisation "
+                      "de tâches opérationnelles.",
+    "eba-gl-2022-15": "Les orientations décrivent comment identifier et vérifier un client à distance. "
+                      "L'établissement doit adopter une politique et des procédures dédiées, définir les données "
+                      "à collecter et vérifier l'authenticité des documents et la correspondance avec la personne, "
+                      "par exemple au moyen de la biométrie ou de la vidéo. La solution technique doit être évaluée "
+                      "avant son déploiement puis testée et suivie régulièrement. En cas de recours à un tiers ou "
+                      "à un prestataire, l'établissement reste responsable du respect de ses obligations.",
+    "eba-gl-2024-01": "Ces orientations étendent les orientations sur les facteurs de risque BC-FT aux prestataires "
+                      "de services sur crypto-actifs. Elles décrivent les facteurs de risque propres à ce secteur : "
+                      "anonymat, transactions avec des adresses auto-hébergées, exposition à des mixeurs ou à des "
+                      "plateformes non régulées, produits renforçant la confidentialité. Elles détaillent les "
+                      "mesures de vigilance attendues, dont l'utilisation d'outils d'analyse de la blockchain, et "
+                      "précisent ce qui est attendu des banques qui entretiennent des relations avec des CASP.",
+    "dual-use": "Le règlement refond le régime européen de contrôle des exportations, du courtage, de l'assistance "
+                "technique, du transit et des transferts de biens à double usage. Il introduit des contrôles sur "
+                "certains outils de cybersurveillance au regard des droits de l'homme et crée de nouvelles "
+                "autorisations générales européennes. Les exportateurs recourant à des licences globales doivent "
+                "disposer d'un programme interne de conformité. Le texte renforce aussi la coopération et "
+                "l'échange d'informations entre les États membres et la Commission.",
+    "dir-2024-1226": "La directive harmonise les infractions pénales de violation des mesures restrictives de l'UE : "
+                     "mise à disposition de fonds ou de ressources économiques à une personne désignée, non-gel "
+                     "des avoirs, transactions et services interdits, et contournement des sanctions, notamment "
+                     "par la dissimulation de la propriété réelle des fonds. Elle fixe des peines d'emprisonnement "
+                     "minimales pour les personnes physiques et des amendes pour les personnes morales, calculées "
+                     "en pourcentage du chiffre d'affaires mondial ou en montant fixe. Elle prévoit des "
+                     "circonstances aggravantes, la confiscation des produits et la coopération entre autorités.",
+    "eba-gl-2024-14": "Deux jeux d'orientations s'appliquent depuis le 30 décembre 2025. Le premier vise tous les "
+                      "établissements supervisés par l'EBA : gouvernance, évaluation de l'exposition aux sanctions "
+                      "et dispositif de gestion des risques liés aux mesures restrictives, sous la responsabilité "
+                      "de l'organe de direction et d'un responsable désigné. Le second vise les PSP et les CASP : "
+                      "politiques et procédures pour appliquer les mesures restrictives lors des transferts de "
+                      "fonds et de crypto-actifs. Ils exigent le filtrage des clients et des transactions, une "
+                      "gestion documentée des alertes, ainsi qu'un choix, un paramétrage et des tests justifiés "
+                      "des outils de filtrage.",
+    "dir-2024-1260": "La directive renforce le dépistage, le gel, la confiscation et la gestion des avoirs d'origine "
+                     "criminelle. Les États doivent pouvoir lancer rapidement des enquêtes patrimoniales, geler "
+                     "les biens et confisquer les instruments et produits d'infractions, y compris en valeur "
+                     "équivalente ou auprès de tiers qui savaient que le transfert visait à éviter la confiscation. "
+                     "Elle permet la confiscation sans condamnation dans certains cas (maladie, fuite, décès) et "
+                     "celle des avoirs inexpliqués liés à la criminalité organisée. Elle renforce les bureaux de "
+                     "recouvrement et de gestion des avoirs et impose une stratégie nationale d'ici mai 2027.",
+    "tfr": "Le TFR refond le règlement 2015/847 : chaque transfert de fonds doit être accompagné d'informations "
+           "sur le donneur d'ordre et le bénéficiaire, et ces règles s'appliquent désormais aux transferts de "
+           "crypto-actifs entre prestataires. Pour les crypto-actifs, aucun seuil ne s'applique. Pour les "
+           "transferts de plus de 1 000 € avec une adresse auto-hébergée, le prestataire doit vérifier que "
+           "l'adresse appartient à son client. Les prestataires intermédiaires et bénéficiaires doivent détecter "
+           "les informations manquantes et décider, selon le risque, de rejeter, suspendre ou exécuter le "
+           "transfert, et signaler les prestataires défaillants de manière répétée.",
+    "eba-gl-2024-11": "Ces orientations précisent les procédures que les PSP, les intermédiaires et les CASP doivent "
+                      "mettre en place pour appliquer le TFR. Elles détaillent les informations à transmettre, "
+                      "la détection des informations manquantes ou incohérentes, et le traitement des transferts "
+                      "incomplets : rejet, suspension ou demande d'informations complémentaires. Elles abordent "
+                      "les transferts avec des adresses auto-hébergées, l'interopérabilité des protocoles "
+                      "d'échange et le suivi des contreparties défaillantes de manière répétée.",
+    "mica": "MiCA crée un régime européen harmonisé pour l'offre au public de crypto-actifs, pour les jetons se "
+            "référant à des actifs (ART) et les jetons de monnaie électronique (EMT), ainsi que pour les "
+            "prestataires de services sur crypto-actifs. Les CASP doivent être agréés et respecter des exigences "
+            "de gouvernance, de fonds propres, de conservation des actifs des clients, de traitement des "
+            "réclamations et de gestion des conflits d'intérêts. L'agrément vaut dans toute l'UE grâce au "
+            "passeport. Le règlement interdit aussi les abus de marché sur crypto-actifs et prévoit une période "
+            "transitoire pour les prestataires déjà en activité.",
+    "ord-2024-936": "L'ordonnance adapte le code monétaire et financier à MiCA. Elle répartit les compétences entre "
+                    "l'AMF et l'ACPR, organise l'articulation avec le régime national des PSAN et la période "
+                    "transitoire, et adapte les pouvoirs de contrôle et de sanction. Le régime PSAN prend fin le "
+                    "1er juillet 2026 : les prestataires doivent désormais disposer de l'agrément MiCA pour "
+                    "exercer.",
+    "ord-2024-937": "L'ordonnance transpose les modifications apportées à la directive LCB-FT par le TFR. Les "
+                    "prestataires de services sur crypto-actifs sont pleinement soumis aux obligations LCB-FT du "
+                    "code monétaire et financier. Le texte prévoit des mesures de vigilance renforcée pour les "
+                    "relations de correspondance avec des prestataires de pays tiers et une attention particulière "
+                    "aux transferts impliquant des adresses auto-hébergées.",
+    "ipr": "Le règlement modifie le règlement SEPA. Tous les PSP qui proposent des virements en euros doivent offrir "
+           "le virement instantané, disponible en permanence, exécuté en dix secondes et facturé au plus au prix "
+           "d'un virement classique. Avant chaque virement, le PSP doit proposer gratuitement un service de "
+           "vérification du bénéficiaire, qui compare le nom et l'IBAN. Pour les sanctions, le filtrage "
+           "transaction par transaction est remplacé par une vérification, au moins quotidienne, de l'ensemble "
+           "de la clientèle contre les listes de personnes et d'entités désignées par l'UE.",
+    "psr-psd3": "La réforme remplace la DSP2 par un règlement d'application directe (PSR), qui fixe les droits et "
+                "obligations dans l'exécution des paiements, et une directive (PSD3), consacrée à l'agrément et "
+                "à la supervision des établissements de paiement, qui intègre le régime de la monnaie "
+                "électronique. Elle étend la vérification nom / IBAN à tous les virements, organise le partage "
+                "d'informations sur la fraude entre PSP et renforce l'authentification forte et l'accès aux "
+                "comptes. Elle crée un droit au remboursement des victimes de fraude par usurpation de l'identité "
+                "de leur PSP et peut engager la responsabilité des plateformes en ligne qui n'ont pas retiré un "
+                "contenu frauduleux signalé.",
+    "ccd2": "La directive remplace la directive de 2008 sur le crédit à la consommation. Elle étend la protection "
+            "aux crédits de moins de 200 €, aux crédits sans frais et aux formules de paiement fractionné "
+            "(« buy now, pay later »). L'évaluation de la solvabilité devient plus exigeante et doit reposer sur "
+            "des informations pertinentes et exactes. Le texte encadre la publicité, les ventes liées et les "
+            "décisions automatisées, et impose aux États de prévenir les taux ou coûts du crédit excessifs.",
+    "dora": "DORA impose aux entités financières un cadre complet de gestion du risque lié aux technologies de "
+            "l'information et de la communication, placé sous la responsabilité de l'organe de direction. Il "
+            "harmonise la classification et la notification des incidents TIC majeurs, et exige des tests "
+            "réguliers de résilience, dont des tests de pénétration fondés sur la menace pour les entités les "
+            "plus importantes. Les relations avec les prestataires TIC sont encadrées par des clauses "
+            "contractuelles obligatoires et un registre d'information. Les prestataires TIC critiques sont "
+            "désignés et supervisés au niveau européen.",
+    "ai-act": "L'AI Act classe les systèmes d'intelligence artificielle selon leur niveau de risque. Il interdit "
+              "certaines pratiques, comme la notation sociale ou la manipulation. Il soumet les systèmes à haut "
+              "risque, dont l'évaluation de la solvabilité des personnes et la tarification en assurance vie et "
+              "santé, à des exigences de gestion des risques, de qualité des données, de documentation, de "
+              "transparence et de supervision humaine. Il prévoit des obligations spécifiques pour les modèles "
+              "d'IA à usage général et des obligations de transparence pour certains systèmes, comme les agents "
+              "conversationnels.",
+    "crr3": "CRR3 transpose la finalisation des accords de Bâle III. Le texte révise l'approche standard et "
+            "encadre les modèles internes pour le risque de crédit, introduit une nouvelle méthode unique pour "
+            "le risque opérationnel et révise le risque de CVA. Il instaure un plancher de fonds propres "
+            "(« output floor ») limitant l'avantage des modèles internes, introduit progressivement. Il prévoit "
+            "aussi des exigences de publication renforcées, notamment sur les risques ESG.",
+    "crd6": "CRD6 renforce le cadre prudentiel de gouvernance et de supervision des banques. Elle harmonise "
+            "l'évaluation de l'aptitude et de l'honorabilité des dirigeants et des titulaires de fonctions clés, "
+            "intègre les risques environnementaux, sociaux et de gouvernance dans la gestion des risques, et "
+            "renforce les pouvoirs des superviseurs. Elle impose un agrément et un cadre minimal harmonisé aux "
+            "succursales d'établissements de pays tiers qui exercent des activités bancaires dans l'UE.",
+    "csrd": "La CSRD remplace la directive sur la publication d'informations non financières. Elle étend le "
+            "reporting de durabilité à un nombre beaucoup plus large d'entreprises et l'organise selon des "
+            "normes européennes (ESRS) fondées sur la double matérialité : impacts de l'entreprise sur "
+            "l'environnement et la société, et effets des enjeux de durabilité sur l'entreprise. Les informations "
+            "figurent dans le rapport de gestion et font l'objet d'une assurance par un tiers. Le calendrier a "
+            "été en partie reporté par la directive « stop-the-clock » de 2025.",
+    "dac8": "DAC8 étend la coopération administrative fiscale aux crypto-actifs. Les prestataires de services sur "
+            "crypto-actifs doivent collecter des informations sur leurs utilisateurs (identité, résidence "
+            "fiscale) et sur leurs transactions, puis les déclarer chaque année à l'administration fiscale. "
+            "Celle-ci les échange automatiquement avec les autres États membres. Le texte s'inspire du cadre "
+            "CARF de l'OCDE et renforce aussi certaines règles d'échange existantes.",
+    "fatf-r24": "La révision de la Recommandation 24 renforce la transparence des personnes morales. Les pays "
+                "doivent adopter une approche multiple combinant un registre des bénéficiaires effectifs ou un "
+                "mécanisme équivalent, les informations détenues par les sociétés elles-mêmes et celles recueillies "
+                "par les assujettis. Les autorités doivent pouvoir accéder rapidement à des informations "
+                "adéquates, exactes et à jour. La révision vise aussi les actions au porteur et les "
+                "prête-noms, et impose une évaluation des risques liés aux personnes morales.",
+    "fatf-r16": "La révision de la Recommandation 16 modernise les règles de transparence des paiements. Elle "
+                "clarifie la responsabilité de chaque acteur de la chaîne de paiement, en commençant par "
+                "l'institution qui reçoit l'instruction du client. Les virements transfrontaliers de pair à pair "
+                "de plus de 1 000 USD/EUR doivent comporter le nom, l'adresse et la date de naissance du donneur "
+                "d'ordre. Les institutions sont invitées à utiliser des outils de vérification des coordonnées du "
+                "bénéficiaire pour prévenir la fraude et les erreurs. Les paiements par carte pour l'achat de "
+                "biens et de services restent exemptés des exigences complètes.",
+}

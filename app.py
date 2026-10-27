@@ -554,7 +554,7 @@ def table_html(rows):
 EXPORT_COLS = [("Entité / cible", .13), ("Catégorie", .11), ("Description", .27), ("Pays", .13),
                ("Mesure", .10), ("Montant", .08), ("Date", .08), ("Autorité", .10)]
 GOLD = "#C9A227"
-AUTHOR = "CWP – Compliance Watch Platform · Plateforme conçue et développée par Mackenson CINEUS"
+AUTHOR = "CWP – Compliance Watch Platform, une plateforme créée par Mackenson CINEUS"
 FOOTER = "CWP – Compliance Watch Platform · informations issues de la presse : à vérifier auprès des sources officielles (OFAC, UE, ONU, DG Trésor…)"
 
 def _plain(s):

@@ -186,8 +186,9 @@ def _preview_html(d: dict) -> str:
   <div>{_h(d['contexte']) or '—'}</div>
   <div style="font-weight:600;margin-top:10px">Traçabilité, sanctions &amp; risque de non-conformité</div>
   <div>{_h(d['risque']) or '—'}</div>{src}
-  <div style="color:{c['grey']};font-size:11px;margin-top:14px">CWP · Compliance Watch Platform · Regulatory Flash ·
-    fiche de synthèse : se référer au texte officiel</div>
+  <div style="border-top:1px solid {c['gold_light']};margin-top:14px;padding-top:6px;font-size:12px;color:{c['navy']}">
+    <b>{X.PLATFORM}</b>, {X.CREDIT}</div>
+  <div style="color:{c['grey']};font-size:11px">Regulatory Flash · fiche de synthèse : se référer au texte officiel</div>
 </div>"""
 
 

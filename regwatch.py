@@ -195,7 +195,7 @@ def strip_publisher(title: str) -> tuple[str, str]:
 
 def sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-Ý«\"(])", text or "")
-            if 45 < len(s.strip()) < 420]
+            if 45 < len(s.strip()) < 420 and not NOISE.search(s)]
 
 
 def short(s: str, n: int = 280) -> str:
@@ -295,16 +295,72 @@ def fetch_publications(days: int = 30, sources: list[str] | None = None,
     return items, status
 
 
+def resolve_url(url: str) -> str:
+    """Retrouve l'adresse réelle d'un lien Google News (sinon renvoie le lien tel quel)."""
+    if "news.google." not in url:
+        return url
+    try:  # paquet optionnel « googlenewsdecoder » (requirements.txt)
+        from googlenewsdecoder import gnewsdecoder
+
+        r = gnewsdecoder(url, timeout=10)
+        if isinstance(r, dict) and (r.get("success") or r.get("status")) and r.get("decoded_url"):
+            return r["decoded_url"]
+    except Exception:  # noqa: BLE001
+        pass
+    try:  # anciens liens : l'adresse est encodée en base64 dans l'identifiant
+        import base64
+
+        token = urlparse(url).path.rstrip("/").split("/")[-1]
+        raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
+        m = re.search(rb"https?://[\x21-\x7e]+", raw)
+        if m:
+            return m.group(0).decode("ascii", "ignore")
+    except Exception:  # noqa: BLE001
+        pass
+    return url
+
+
+DOMAIN_NAMES = [
+    ("tresor.economie.gouv.fr", "DG Trésor"), ("economie.gouv.fr", "TRACFIN / Ministère de l'Économie"),
+    ("acpr.banque-france.fr", "ACPR"), ("banque-france.fr", "Banque de France"), ("amf-france.org", "AMF"),
+    ("legifrance.gouv.fr", "Légifrance"), ("agence-francaise-anticorruption", "AFA"),
+    ("eur-lex.europa.eu", "EUR-Lex (Journal officiel de l'UE)"), ("amla.europa.eu", "AMLA"),
+    ("eba.europa.eu", "EBA"), ("esma.europa.eu", "ESMA"), ("bankingsupervision.europa.eu", "BCE"),
+    ("ecb.europa.eu", "BCE"), ("consilium.europa.eu", "Conseil de l'UE"),
+    ("europarl.europa.eu", "Parlement européen"), ("ec.europa.eu", "Commission européenne"),
+    ("fatf-gafi.org", "GAFI"), ("ofac.treasury.gov", "OFAC"), ("treasury.gov", "Trésor américain"),
+    ("fincen.gov", "FinCEN"), ("bis.org", "BRI / Comité de Bâle"),
+]
+
+
+def source_name(url: str, fallback: str = "") -> str:
+    host = urlparse(url or "").netloc.lower()
+    for dom, name in DOMAIN_NAMES:
+        if dom in host:
+            return name
+    return fallback
+
+
+NOISE = re.compile(r"cookie|javascript|navigateur|browser|newsletter|abonnez|subscribe|accepter|accept all|"
+                   r"©|copyright|tous droits|all rights reserved|menu|se connecter|log in|partager|share this|"
+                   r"aller au contenu|skip to|mentions légales|plan du site|rechercher", re.I)
+
+
 def fetch_text(url: str, max_chars: int = 25_000) -> str:
-    """Texte brut de la page officielle (vide si inaccessible ou lien Google News non résolu)."""
+    """Texte de la page officielle (le lien Google News est d'abord résolu ; vide si inaccessible)."""
     try:
+        url = resolve_url(url)
         r = requests.get(url, headers=UA, timeout=15, allow_redirects=True)
         if "news.google." in urlparse(r.url).netloc:
             return ""
         ctype = r.headers.get("content-type", "")
         if "pdf" in ctype:
             return ""  # PDF : on se contente du résumé du flux
-        txt = re.sub(r"(?is)<(script|style|nav|footer|header|aside|form|noscript).*?</\1>", " ", r.text)
+        page = r.text
+        m = re.search(r"(?is)<(main|article)\b.*?</\1>", page)  # zone de contenu principale si présente
+        if m and len(m.group(0)) > 1500:
+            page = m.group(0)
+        txt = re.sub(r"(?is)<(script|style|nav|footer|header|aside|form|noscript|button|svg).*?</\1>", " ", page)
         return clean(txt)[:max_chars]
     except Exception:  # noqa: BLE001
         return ""
@@ -410,25 +466,31 @@ def extractive_flash(item: dict, page_text: str = "") -> dict:
                  "Pas d'impact direct identifié dans la publication — à confirmer à la lecture du texte.")
         checklist.append(dict(domaine=dom, texte=texte, impact=impact, fait=False))
 
-    # L'essentiel
-    rest = [s for s in ranked if s not in used]
-    ctx_sents = " ".join(short(s, 330) for s in rest[:2])
-    contexte = (f"Publication de type « {kind.lower()} » diffusée par {item['juridiction']} le {pub}. "
-                + (ctx_sents + " " if ctx_sents else (short(desc, 500) + " " if desc else ""))
-                + "À décliner dans le dispositif de contrôle interne : procédures opérationnelles (niveau 1), "
-                  "contrôle permanent conformité (niveau 2) et audit (niveau 3).")
+    # L'essentiel = résumé du contenu : phrases les plus représentatives, remises dans l'ordre du texte
     strong = [c["domaine"] for c in checklist if c["impact"] != "Faible"]
-    risk_sents = " ".join(short(s, 300) for s in rest[2:4] if CONSTRAINT.search(s) or OBLIGATION.search(s))
-    risque = ((risk_sents + " ") if risk_sents else "") + (
-        f"Domaines à adapter en priorité : {', '.join(strong)}. " if strong else "") + \
-        ("Les évolutions doivent être tracées dans les outils (paramétrage, scénarios, seuils) et calibrées pour "
-         "limiter les faux positifs ; un manquement expose à des sanctions financières et réputationnelles.")
+    if len(sents) >= 3:
+        top = set(ranked[:5])
+        resume = " ".join(short(x, 330) for x in sents if x in top)
+        contexte = resume
+        impl = [x for x in sents if x not in top and (OBLIGATION.search(x) or CONSTRAINT.search(x))][:3]
+        risque = " ".join(short(x, 300) for x in impl)
+        if strong:
+            risque += (" " if risque else "") + f"Domaines du dispositif concernés en priorité : {', '.join(strong)}."
+    else:
+        contexte = (f"Le contenu intégral de cette publication n'a pas pu être récupéré automatiquement ; "
+                    f"le résumé se limite à ce qu'en indique la source. {item['source']} publie : « {title} »."
+                    + (f" {short(desc, 600)}" if desc else "")
+                    + " Consultez la publication d'origine pour le détail des dispositions.")
+        risque = ((f"Domaines du dispositif potentiellement concernés : {', '.join(strong)}. " if strong else "")
+                  + "L'analyse d'impact (paramétrage des outils, procédures, calendrier) est à compléter "
+                    "à la lecture du texte.")
 
     return dict(
         titre=short(title, 140), reference=reference, pays_source=item["juridiction"],
         adoption=month_year(item["ts"]), application=application, cible=cible,
         points=[p1, p2, p3], checklist=checklist, contexte=contexte, risque=risque,
-        sources=f"{item['source']} — {item['link']}", type=kind, mode="Extraction automatique",
+        sources=" · ".join(dict.fromkeys(x for x in [item["source"], item.get("publisher", "")] if x)),
+        type=kind, mode="Extraction automatique",
         lien=item["link"],
     )
 
@@ -453,8 +515,8 @@ Réponds avec un unique objet JSON, sans texte autour, au format :
    {{"domaine": "KYC / KYB & UBO", "texte": "impact sur l'entrée en relation (1 phrase)", "impact": "Fort|Modéré|Faible"}},
    {{"domaine": "Filtrage & transactions", "texte": "impact sur screening, scénarios, règles (1 phrase)", "impact": "Fort|Modéré|Faible"}},
    {{"domaine": "Gouvernance & reporting", "texte": "audits, déclarations TRACFIN / ACPR / AMF (1 phrase)", "impact": "Fort|Modéré|Faible"}}],
- "contexte": "paragraphe de 4-5 phrases : esprit de la norme, ancrage juridique, exigences pour le contrôle interne (niveaux 1, 2, 3)",
- "risque": "paragraphe de 4-5 phrases : implémentation dans les outils IT, faux positifs, seuils, conséquences en cas de manquement"}}
+ "contexte": "RÉSUMÉ FIDÈLE de ce que dit le texte, en 5 à 7 phrases : objet, champ d'application, principales obligations et dispositions nouvelles, calendrier",
+ "risque": "paragraphe de 4-5 phrases : mise en œuvre concrète (outils, procédures, contrôles), points de vigilance, conséquences en cas de manquement prévues par le texte"}}
 
 Source : {source} ({juridiction})
 Date de publication : {date}

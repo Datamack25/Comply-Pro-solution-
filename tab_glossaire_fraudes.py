@@ -125,17 +125,17 @@ def _card_html(f: dict) -> str:
         if f.get("alias") else ""
     return f"""
 <div style="border:1px solid {c['line']};border-top:3px solid {col};border-radius:8px;padding:12px 14px;
-            background:#fff;break-inside:avoid;margin-bottom:12px">
+            background:#fff;color:{c['ink']};break-inside:avoid;margin-bottom:12px">
   <div style="font-weight:700;color:{c['navy']};font-size:15.5px">
      <span style="color:{c['gold']}">{f['num']:02d}</span>&nbsp; {h(f['nom'])}{alias}</div>
   <div style="color:{col};font-size:10.5px;font-weight:700;letter-spacing:.05em;margin:2px 0 6px">
      {h(f['categorie']).upper()}</div>
   <div style="font-size:13.5px;line-height:1.5;color:{c['ink']}">{h(f['description'])}</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px">
-    <div style="background:{c['row_alt']};border-left:3px solid {c['red']};padding:7px 9px;font-size:12.5px">
+    <div style="background:{c['row_alt']};border-left:3px solid {c['red']};padding:7px 9px;font-size:12.5px;color:{c['ink']};line-height:1.45">
       <div style="font-size:10px;font-weight:700;color:{c['grey']};letter-spacing:.05em">COMMENT L'IDENTIFIER</div>
       {h(f['identifier'])}</div>
-    <div style="background:{c['row_alt']};border-left:3px solid {c['green']};padding:7px 9px;font-size:12.5px">
+    <div style="background:{c['row_alt']};border-left:3px solid {c['green']};padding:7px 9px;font-size:12.5px;color:{c['ink']};line-height:1.45">
       <div style="font-size:10px;font-weight:700;color:{c['grey']};letter-spacing:.05em">COMMENT LA COMBATTRE</div>
       {h(f['combattre'])}</div>
   </div>

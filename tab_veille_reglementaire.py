@@ -23,12 +23,39 @@ import streamlit as st
 import cwp_export_utils as X
 import regwatch as rw
 import tab_regulatory_flash as T
-from data_registre_reglementaire import REGISTRE, THEMES
+from data_registre_reglementaire import REGISTRE, RESUMES, THEMES
 
 STATUTS = ["En vigueur", "En vigueur · échéances à venir", "À venir", "En cours d'adoption"]
 STATUT_COLOR = {"En vigueur": X.HEX["green"], "En vigueur · échéances à venir": X.HEX["navy"],
                 "À venir": X.HEX["orange"], "En cours d'adoption": X.HEX["purple"]}
 RECUEIL_MAX = 30
+
+MISE_EN_OEUVRE = {
+    "LCB-FT": "Mise en œuvre : mise à jour de la classification des risques, des procédures KYC et des paramètres "
+              "de surveillance, avec une traçabilité des contrôles attendue par le superviseur.",
+    "Sanctions & embargos": "Mise en œuvre : mise à jour des listes et des règles de filtrage, calibrage des seuils "
+                            "de correspondance pour limiter les faux positifs et documentation du traitement des alertes.",
+    "Crypto-actifs": "Mise en œuvre : outils d'analyse on-chain, échange des informations « travel rule » entre "
+                     "prestataires et contrôles sur les adresses auto-hébergées.",
+    "Paiements": "Mise en œuvre : adaptation des chaînes de paiement, des contrôles antifraude et de l'information "
+                 "client, avec des tests avant chaque échéance.",
+    "Résilience & numérique": "Mise en œuvre : cartographie des actifs et des prestataires, procédures de gestion "
+                              "des incidents et programme de tests, sous la responsabilité de l'organe de direction.",
+    "Prudentiel": "Mise en œuvre : adaptation des calculs, des données et du reporting réglementaire, sous le "
+                  "contrôle de la fonction de gestion des risques.",
+    "ESG & fiscalité": "Mise en œuvre : collecte et fiabilisation des données, procédures de déclaration et revue "
+                       "par le contrôle interne.",
+}
+
+
+def _source_names(e: dict) -> str:
+    names = []
+    if e["reference"].startswith("EBA"):
+        names.append("EBA")
+    if "GAFI" in e["juridiction"]:
+        names.append("GAFI")
+    names.append(rw.source_name(e["lien"], e["juridiction"]))
+    return " · ".join(dict.fromkeys(n for n in names if n))
 
 
 # --------------------------------------------------------------------------- #
@@ -97,7 +124,7 @@ def _month_year(s: str | None) -> str:
 
 
 def _item(e: dict) -> dict:
-    text = " ".join([e["objectif"], e["obligation"], e["contrainte"], e.get("cible", "")])
+    text = " ".join([RESUMES.get(e["id"], ""), e["objectif"], e["obligation"], e["contrainte"], e.get("cible", "")])
     ts = datetime.strptime(e["adoption"], "%Y-%m-%d").timestamp()
     return dict(source=e["juridiction"], juridiction=e["juridiction"], cible_defaut=e["cible"],
                 title=f"{e['nom']} — {e['reference']}", desc=text, link=e["lien"], ts=ts,
@@ -122,16 +149,21 @@ def _registre_flash(entry_json: str, provider: str | None) -> dict:
         + (" · transposition" if e["type"] == "Directive" else ""),
         cible=e["cible"], points=[e["objectif"], e["obligation"], e["contrainte"]],
         type=f"{e['type']} · {st_}",
-        sources=f"Texte officiel : {e['lien']}" + (f" — Point à vérifier : {e['a_verifier']}" if e.get("a_verifier") else ""),
+        sources=_source_names(e),
         lien=e["lien"],
     )
+    strong = [c["domaine"] for c in d["checklist"] if c["impact"] != "Faible"]
+    d["contexte"] = RESUMES.get(e["id"]) or d["contexte"]  # résumé de ce que dit le texte
     if not provider:
-        d["contexte"] = (f"{e['reference']} ({e['juridiction']}). {e['objectif']} "
-                         + (f"Échéances : {jal}. " if jal else "")
-                         + "À décliner dans le dispositif de contrôle interne : procédures opérationnelles "
-                           "(niveau 1), contrôle permanent conformité (niveau 2) et audit (niveau 3).")
-    elif jal:
-        d["contexte"] = d["contexte"].rstrip() + f" Échéances : {jal}."
+        d["risque"] = " ".join(x for x in [
+            f"Calendrier : {jal}." if jal else f"Application : {_fr(e.get('application'))}.",
+            f"Domaines du dispositif à adapter en priorité : {', '.join(strong)}." if strong else "",
+            MISE_EN_OEUVRE.get(e["theme"], ""),
+            "Un manquement expose à des mesures et sanctions du superviseur.",
+            f"Point à vérifier : {e['a_verifier']}" if e.get("a_verifier") else "",
+        ] if x)
+    elif e.get("a_verifier"):
+        d["risque"] = d["risque"].rstrip() + f" Point à vérifier : {e['a_verifier']}"
     return d
 
 
@@ -147,7 +179,7 @@ def _excel(entries: list[dict]) -> bytes:
              "Thème": e["theme"], "Type": e["type"], "Statut": statut(e),
              "Adoption": _fr(e["adoption"]), "Application": _fr(e.get("application")),
              "Échéances": "; ".join(f"{_fr(d)} : {l}" for d, l in e.get("jalons", [])),
-             "Cible": e["cible"], "Objectif": e["objectif"], "Obligation clé": e["obligation"],
+             "Cible": e["cible"], "Résumé": RESUMES.get(e["id"], ""), "Objectif": e["objectif"], "Obligation clé": e["obligation"],
              "Contrainte / sanction": e["contrainte"], "À vérifier": e.get("a_verifier", ""),
              "Lien officiel": e["lien"]} for e in entries]
     buf = io.BytesIO()

@@ -151,8 +151,8 @@ def section_title(text: str, width: float) -> Table:
 # --------------------------------------------------------------------------- #
 PLATFORM = "CWP – Compliance Watch Platform"
 AUTHOR = "Mackenson CINEUS"
-CREDIT = f"Plateforme conçue et développée par {AUTHOR}"
-SIGNATURE = f"{PLATFORM} · {CREDIT}"
+CREDIT = f"une plateforme créée par {AUTHOR}"
+SIGNATURE = f"{PLATFORM}, {CREDIT}"
 
 
 def signature_meta() -> dict:
@@ -166,8 +166,7 @@ def footer_line(context: str, width: float | None = None) -> Table:
     now = datetime.now().strftime("%d/%m/%Y %H:%M")
     st = styles()
     sig = Paragraph(f'<font name="{FONT_B}" color="{HEX["navy"]}">{esc(PLATFORM)}</font>'
-                    f'<font color="{HEX["gold"]}">  ·  </font>'
-                    f'<font color="{HEX["navy"]}">{esc(CREDIT)}</font>',
+                    f'<font color="{HEX["navy"]}">, {esc(CREDIT)}</font>',
                     S("sig", 7.8, FONT, NAVY, leading=10))
     ctx = Paragraph(f"{esc(context)} · généré le {now}", st["footer"])
     t = Table([[sig], [ctx]], colWidths=[width or CONTENT_W])
