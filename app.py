@@ -554,7 +554,7 @@ def table_html(rows):
 EXPORT_COLS = [("Entité / cible", .13), ("Catégorie", .11), ("Description", .27), ("Pays", .13),
                ("Mesure", .10), ("Montant", .08), ("Date", .08), ("Autorité", .10)]
 GOLD = "#C9A227"
-AUTHOR = "Réalisé par Mackenson CINEUS"
+AUTHOR = "CWP – Compliance Watch Platform · Plateforme conçue et développée par Mackenson CINEUS"
 FOOTER = "CWP – Compliance Watch Platform · informations issues de la presse : à vérifier auprès des sources officielles (OFAC, UE, ONU, DG Trésor…)"
 
 def _plain(s):
@@ -585,6 +585,8 @@ def _font_path(bold):
     except Exception:
         pass
     name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands = [os.path.join(here, "assets", "fonts", name)] + cands  # police embarquée dans le dépôt
     cands += [name, f"/usr/share/fonts/truetype/dejavu/{name}"]
     for c in cands:
         if os.path.exists(c):
@@ -780,7 +782,7 @@ def render(it, new=False):
 # ---------- Sidebar ----------
 with st.sidebar:
     st.markdown('<div class="brand">CWP</div><div class="sub">COMPLIANCE WATCH PLATFORM</div>', unsafe_allow_html=True)
-    page = st.radio("Navigation", ["🏠 Dashboard", "📡 Veille", "🔎 OpenSanctions", "⚖️ Textes de loi", "📅 Calendrier réglementaire", "📚 Glossaire", "🔗 Sources officielles"], label_visibility="collapsed")
+    page = st.radio("Navigation", ["🏠 Dashboard", "📡 Veille", "🔎 OpenSanctions", "⚖️ Textes de loi", "📅 Calendrier réglementaire", "📌 Regulatory Flash", "📚 Glossaire", "🕵️ Glossaire des fraudes", "🔗 Sources officielles"], label_visibility="collapsed")
     kw_in = st.text_area("🚨 Mots-clés d'alerte (un par ligne)", "\n".join(load_kw()), placeholder="Russie\nIran\nNom d'une entité")
     KWS = [k.strip() for k in kw_in.splitlines() if k.strip()]
     json.dump(KWS, open(ALERT_FILE, "w"))
@@ -888,22 +890,27 @@ if page == "🏠 Dashboard":
 
 elif page == "📡 Veille":
     st.markdown("# 📡 Veille")
-    col1, col2 = st.columns([2, 1])
-    q = col1.text_input("Recherche", placeholder="ex : Russie, AMLA, OFAC…")
-    sel = col2.multiselect("Thèmes", list(THEMES), default=list(THEMES))
-    only_new = st.checkbox("Uniquement les nouveautés", value=False)
-    only_alert = st.checkbox("Uniquement les alertes", value=False)
-    shown = [i for i in items if i["theme"] in sel and (not q or q.lower() in (i["title"] + i["desc"]).lower())
-             and (not only_new or i["link"] in new_links) and (not only_alert or hits(i, KWS))]
-    if shown:
-        st.download_button("📥 Export Excel", to_excel(shown), f"veille_conformite_{datetime.now():%Y%m%d}.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    for it in items:
-        if it["theme"] not in sel: continue
-        if q and q.lower() not in (it["title"] + it["desc"]).lower(): continue
-        if only_new and it["link"] not in new_links: continue
-        if only_alert and not hits(it, KWS): continue
-        render(it, it["link"] in new_links)
+    tab_sanctions, tab_reglementaire = st.tabs(["🚨 Sanctions & embargos", "📜 Veille réglementaire"])
+    with tab_sanctions:
+        col1, col2 = st.columns([2, 1])
+        q = col1.text_input("Recherche", placeholder="ex : Russie, AMLA, OFAC…")
+        sel = col2.multiselect("Thèmes", list(THEMES), default=list(THEMES))
+        only_new = st.checkbox("Uniquement les nouveautés", value=False)
+        only_alert = st.checkbox("Uniquement les alertes", value=False)
+        shown = [i for i in items if i["theme"] in sel and (not q or q.lower() in (i["title"] + i["desc"]).lower())
+                 and (not only_new or i["link"] in new_links) and (not only_alert or hits(i, KWS))]
+        if shown:
+            st.download_button("📥 Export Excel", to_excel(shown), f"veille_conformite_{datetime.now():%Y%m%d}.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        for it in items:
+            if it["theme"] not in sel: continue
+            if q and q.lower() not in (it["title"] + it["desc"]).lower(): continue
+            if only_new and it["link"] not in new_links: continue
+            if only_alert and not hits(it, KWS): continue
+            render(it, it["link"] in new_links)
+    with tab_reglementaire:
+        from tab_veille_reglementaire import render_veille_reglementaire
+        render_veille_reglementaire()
 
 elif page == "📅 Calendrier réglementaire":
     st.markdown("# 📅 Calendrier réglementaire")
@@ -924,6 +931,14 @@ elif page == "📚 Glossaire":
             st.markdown(f"**Définition** — {r.definition}")
             st.markdown(f"**Décorticage** — {r.decorticage}")
             st.markdown(f"**Actualité / échéance** — {r.actualite}")
+
+elif page == "📌 Regulatory Flash":
+    from tab_regulatory_flash import render_regulatory_flash
+    render_regulatory_flash()
+
+elif page == "🕵️ Glossaire des fraudes":
+    from tab_glossaire_fraudes import render_glossaire_fraudes
+    render_glossaire_fraudes()
 
 elif page == "🔎 OpenSanctions":
     st.markdown("# 🔎 OpenSanctions")

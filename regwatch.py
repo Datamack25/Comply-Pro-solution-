@@ -228,22 +228,37 @@ def classify(text: str) -> str:
 
 def fetch_publications(days: int = 30, sources: list[str] | None = None,
                        per_feed: int = 25) -> tuple[list[dict], list[dict]]:
-    """Renvoie (publications, état des sources)."""
+    """Renvoie (publications, état des sources). Les flux sont interrogés en parallèle."""
+    from concurrent.futures import ThreadPoolExecutor
+
     cutoff = time.time() - days * 86400
+    names = [n for n in SOURCES if not sources or n in sources]
+    jobs = [(n, k, u) for n in names
+            for k, u in [("Flux officiel", u) for u in SOURCES[n]["rss"]] + [("Google News", u) for u in SOURCES[n]["gnews"]]]
+
+    def _get(url):
+        try:
+            feed = _parse(url)
+            if feed.bozo and not feed.entries:
+                raise ValueError("flux vide ou illisible")
+            return feed, None
+        except Exception as e:  # noqa: BLE001
+            return None, type(e).__name__
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        results = list(pool.map(lambda j: _get(j[2]), jobs))
+
     items, status, seen = [], [], set()
-    for name, cfg in SOURCES.items():
-        if sources and name not in sources:
-            continue
+    for name in names:
+        cfg = SOURCES[name]
         n_ok, n_items, errors = 0, 0, []
-        for kind_url, url in [("Flux officiel", u) for u in cfg["rss"]] + [("Google News", u) for u in cfg["gnews"]]:
-            try:
-                feed = _parse(url)
-                if feed.bozo and not feed.entries:
-                    raise ValueError("flux vide ou illisible")
-                n_ok += 1
-            except Exception as e:  # noqa: BLE001
-                errors.append(f"{kind_url} : {type(e).__name__}")
+        for (n, kind_url, url), (feed, err) in zip(jobs, results):
+            if n != name:
                 continue
+            if err:
+                errors.append(f"{kind_url} : {err}")
+                continue
+            n_ok += 1
             for e in feed.entries[:per_feed]:
                 link = e.get("link") or ""
                 raw_title = clean(e.get("title"), 300)

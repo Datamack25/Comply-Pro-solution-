@@ -264,10 +264,11 @@ def _edit_form(link: str, d: dict) -> None:
 # --------------------------------------------------------------------------- #
 # Onglet
 # --------------------------------------------------------------------------- #
-def render_regulatory_flash() -> None:
-    st.markdown("# 📌 Regulatory Flash")
-    st.caption("Veille réglementaire automatique sur les sites des régulateurs (ACPR, TRACFIN, AMF, AMLA, EBA, "
-               f"GAFI, OFAC…) : chaque publication devient une fiche Regulatory Flash. {X.SIGNATURE}.")
+def render_regulatory_flash(show_header: bool = True) -> None:
+    if show_header:
+        st.markdown("# 📌 Regulatory Flash")
+    st.caption("Publications récentes des régulateurs (ACPR, TRACFIN, AMF, AMLA, EBA, GAFI, OFAC…) : "
+               f"chaque publication devient une fiche Regulatory Flash. {X.SIGNATURE}.")
 
     provider = rw.llm_provider(_secrets())
 
