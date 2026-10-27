@@ -307,7 +307,7 @@ def render_regulatory_flash() -> None:
     if P + "titre" not in st.session_state:
         _load(PRESETS["AMLR — Règlement (UE) 2024/1624"])
 
-    st.markdown("# 📌 Regulatory Flash")
+    st.markdown("### 📌 Regulatory Flash")
     st.caption("Fiche de synthèse d'un texte réglementaire — à remplir, prévisualiser et exporter en PDF / image.")
 
     c1, c2 = st.columns([2, 1])

@@ -3,6 +3,3 @@ feedparser
 pandas
 openpyxl
 requests
-reportlab>=4.0
-pypdfium2>=4.0
-pillow

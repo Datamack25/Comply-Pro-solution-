@@ -554,7 +554,7 @@ def table_html(rows):
 EXPORT_COLS = [("Entité / cible", .13), ("Catégorie", .11), ("Description", .27), ("Pays", .13),
                ("Mesure", .10), ("Montant", .08), ("Date", .08), ("Autorité", .10)]
 GOLD = "#C9A227"
-AUTHOR = "CWP – Compliance Watch Platform · Plateforme conçue et développée par Mackenson CINEUS"
+AUTHOR = "Réalisé par Mackenson CINEUS"
 FOOTER = "CWP – Compliance Watch Platform · informations issues de la presse : à vérifier auprès des sources officielles (OFAC, UE, ONU, DG Trésor…)"
 
 def _plain(s):
@@ -585,8 +585,6 @@ def _font_path(bold):
     except Exception:
         pass
     name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
-    here = os.path.dirname(os.path.abspath(__file__))
-    cands = [os.path.join(here, "assets", "fonts", name)] + cands  # police embarquée dans le dépôt
     cands += [name, f"/usr/share/fonts/truetype/dejavu/{name}"]
     for c in cands:
         if os.path.exists(c):
@@ -782,7 +780,7 @@ def render(it, new=False):
 # ---------- Sidebar ----------
 with st.sidebar:
     st.markdown('<div class="brand">CWP</div><div class="sub">COMPLIANCE WATCH PLATFORM</div>', unsafe_allow_html=True)
-    page = st.radio("Navigation", ["🏠 Dashboard", "📡 Veille", "🔎 OpenSanctions", "⚖️ Textes de loi", "📅 Calendrier réglementaire", "📌 Regulatory Flash", "📚 Glossaire", "🕵️ Glossaire des fraudes", "🔗 Sources officielles"], label_visibility="collapsed")
+    page = st.radio("Navigation", ["🏠 Dashboard", "📡 Veille", "🔎 OpenSanctions", "⚖️ Textes de loi", "📅 Calendrier réglementaire", "📚 Glossaire", "🔗 Sources officielles"], label_visibility="collapsed")
     kw_in = st.text_area("🚨 Mots-clés d'alerte (un par ligne)", "\n".join(load_kw()), placeholder="Russie\nIran\nNom d'une entité")
     KWS = [k.strip() for k in kw_in.splitlines() if k.strip()]
     json.dump(KWS, open(ALERT_FILE, "w"))
@@ -926,14 +924,6 @@ elif page == "📚 Glossaire":
             st.markdown(f"**Définition** — {r.definition}")
             st.markdown(f"**Décorticage** — {r.decorticage}")
             st.markdown(f"**Actualité / échéance** — {r.actualite}")
-
-elif page == "📌 Regulatory Flash":
-    from tab_regulatory_flash import render_regulatory_flash
-    render_regulatory_flash()
-
-elif page == "🕵️ Glossaire des fraudes":
-    from tab_glossaire_fraudes import render_glossaire_fraudes
-    render_glossaire_fraudes()
 
 elif page == "🔎 OpenSanctions":
     st.markdown("# 🔎 OpenSanctions")
