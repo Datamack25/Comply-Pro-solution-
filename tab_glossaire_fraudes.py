@@ -148,7 +148,7 @@ def _card_html(f: dict) -> str:
 def render_glossaire_fraudes() -> None:
     items_all = _numbered()
 
-    st.markdown("### 📚 Glossaire des fraudes")
+    st.markdown("# 🕵️ Glossaire des fraudes")
     st.caption(f"{len(items_all)} typologies courantes — description, signaux dans une transaction "
                "et moyens de lutte. Filtrez, puis exportez en PDF ou en image.")
 
